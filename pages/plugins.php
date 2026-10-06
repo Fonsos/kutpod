@@ -53,13 +53,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && in_array
         $active = [];
     }
 
+    $all_plugins = kp_get_available_plugins();
+
     if ($_POST['action'] === 'activate') {
+        // Dependencias: "requires": ["otro-plugin"] en plugin.json
+        $missing = array_values(array_diff($all_plugins[$plugin_id]['requires'] ?? [], $active));
+        if ($missing) {
+            setcookie('kp_flash', 'Error: este plugin necesita tener activo antes: ' . implode(', ', $missing), time() + 30, '/');
+            header('Location: ' . admin_url('plugins'));
+            exit;
+        }
         if (!in_array($plugin_id, $active)) {
             $active[] = $plugin_id;
         }
         $msg = 'Plugin activado exitosamente';
     } else {
         $active = array_values(array_diff($active, [$plugin_id]));
+        // Desactivar también los plugins que dependen de este
+        foreach ($all_plugins as $dep_id => $dep) {
+            if (in_array($plugin_id, $dep['requires'] ?? [], true)) {
+                $active = array_values(array_diff($active, [$dep_id]));
+            }
+        }
         $msg = 'Plugin desactivado exitosamente';
     }
 
@@ -255,6 +270,9 @@ if ($action === 'settings' && $pluginId !== '') {
                 <div style="display:flex; gap:12px; font-size:11.5px; color:var(--text-3)">
                   <span>Versión: <strong><?= e($plugin['version'] ?? '1.0') ?></strong></span>
                   <span>Autor: <strong><?= e($plugin['author'] ?? 'Desconocido') ?></strong></span>
+                  <?php if (!empty($plugin['requires'])): ?>
+                    <span>Requiere: <strong><?= e(implode(', ', $plugin['requires'])) ?></strong></span>
+                  <?php endif; ?>
                 </div>
               </div>
               

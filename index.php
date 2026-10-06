@@ -29,7 +29,10 @@ kp_csrf_ensure_session();
 if (($_GET['action'] ?? '') === 'logout') { kp_logout(); header('Location: /admin/login'); exit; }
 
 $page = $_GET['page'] ?? 'overview';
+// Los plugins activos pueden registrar páginas propias: slug => ['file' => ruta absoluta, 'title' => título]
+$plugin_pages = kp_apply_filters('admin_pages', []);
 $allowed = ['overview','alerts','podcasts','podcast','new-podcast','edit-podcast','new-episode','analytics','import','backups','fediverse','users','edit-user','api','pages','preferences','login','login-2fa','search','broadcast','queue','update','forgot','reset','recover','plugins'];
+$allowed = array_merge($allowed, array_keys($plugin_pages));
 
 
 // Gate: todo requiere sesión salvo páginas de acceso
@@ -53,16 +56,18 @@ $titles = [
   'broadcast'=>'Broadcast','queue'=>'Cola de procesos','update'=>'Actualizaciones',
   'forgot'=>'Recuperar contraseña','reset'=>'Restablecer contraseña','recover'=>'Usar código de respaldo'
 ];
+foreach ($plugin_pages as $slug => $def) { $titles[$slug] = $def['title'] ?? $slug; }
 $title = 'KutPod · ' . ($titles[$page] ?? 'Panel');
+$page_file = $plugin_pages[$page]['file'] ?? (__DIR__ . "/pages/$page.php");
 
 // Renderiza el body capturando la salida de la página correspondiente.
 if (isset($_GET['ajax'])) {
-    require __DIR__ . "/pages/$page.php";
+    require $page_file;
     exit;
 }
 
 ob_start();
-require __DIR__ . "/pages/$page.php";
+require $page_file;
 $body = ob_get_clean();
 
 require __DIR__ . '/includes/layout.php';

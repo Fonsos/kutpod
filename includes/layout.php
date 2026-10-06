@@ -71,6 +71,12 @@ $is_auth_page = in_array($page, ['login', 'login-2fa', 'forgot', 'reset', 'recov
       <a class="nav-item <?= $page==='new-podcast'?'active':'' ?>" href="<?= admin_url('new-podcast') ?>"><?= icon('plus') ?> Nuevo Podcast</a>
       <a class="nav-item <?= $page==='import'?'active':'' ?>" href="<?= admin_url('import') ?>"><?= icon('rss') ?> Importar RSS</a>
     </div>
+    <?php ob_start(); kp_do_action('admin_nav', $page); $plugin_nav = ob_get_clean(); if (trim($plugin_nav) !== ''): ?>
+    <div class="nav-section">
+      <div class="nav-label">Producción</div>
+      <?= $plugin_nav ?>
+    </div>
+    <?php endif; ?>
     <div class="nav-section">
       <div class="nav-label">Red</div>
       <a class="nav-item <?= $page==='analytics'?'active':'' ?>" href="<?= admin_url('analytics') ?>"><?= icon('chart') ?> Estadísticas</a>
