@@ -27,7 +27,7 @@ function studio_job_create(int $pid, string $type, array $params = []): int {
 }
 
 function studio_php_bin(): string {
-  if (PHP_SAPI === 'cli') return PHP_BINARY;
+  if (in_array(PHP_SAPI, ['cli', 'cli-server'], true)) return PHP_BINARY;
   foreach ([PHP_BINDIR . '/php', '/usr/bin/php', '/usr/local/bin/php'] as $c) if (is_executable($c)) return $c;
   return 'php';
 }

@@ -1,0 +1,33 @@
+# ============================================================================
+# KutPod · imagen de contenedor (Podman/Docker)
+#   WITH_WHISPER=1  añade faster-whisper (transcripción local en CPU)
+# ============================================================================
+FROM docker.io/library/php:8.3-apache
+
+ARG WITH_WHISPER=0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg fontconfig fonts-dejavu-core ca-certificates curl util-linux \
+        libzip-dev libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev \
+    && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
+    && docker-php-ext-install -j"$(nproc)" gd zip \
+    && a2enmod rewrite headers \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN if [ "$WITH_WHISPER" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends python3 python3-venv \
+        && python3 -m venv /opt/fw \
+        && /opt/fw/bin/pip install --no-cache-dir faster-whisper \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
+
+COPY kutpod.ini /usr/local/etc/php/conf.d/kutpod.ini
+COPY apache.conf /etc/apache2/conf-available/kutpod.conf
+COPY entrypoint.sh /usr/local/bin/kutpod-entrypoint
+RUN a2enconf kutpod && chmod +x /usr/local/bin/kutpod-entrypoint
+
+# Los modelos de faster-whisper se descargan aquí (volumen persistente)
+ENV HF_HOME=/cache/huggingface
+WORKDIR /var/www/html
+ENTRYPOINT ["/usr/local/bin/kutpod-entrypoint"]
+CMD ["apache2-foreground"]
