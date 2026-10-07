@@ -67,6 +67,8 @@
   }
   function onJobDone(type) {
     W = type === 'transcribe' || type === 'sync' ? null : W;
+    var r = S.job && S.job.result;
+    if (type === 'sync' && r && r.retranscribe && r.retranscribe.length) toast('La pista ' + r.retranscribe.join(', ') + ' cambió al sincronizarla: hay que volver a transcribirla', true);
     if (type === 'ingest') go('sync');
     else if (type === 'transcribe') go('edit');
     else if (type === 'render') go('export');
@@ -181,7 +183,8 @@
   }
 
   // ── 2 · Sincronización ────────────────────────────────────────────────────
-  function confBadge(c) {
+  function confBadge(c, ncc) {
+    if (ncc != null) return ncc >= 0.6 ? '<span class="st-badge ok" title="Correlación con la referencia tras alinear">Alta (' + ncc.toFixed(2) + ')</span>' : ncc >= 0.35 ? '<span class="st-badge mid" title="Correlación con la referencia tras alinear">Media (' + ncc.toFixed(2) + ')</span>' : '<span class="st-badge bad" title="Correlación con la referencia tras alinear">Baja (' + ncc.toFixed(2) + ')</span>';
     if (c == null) return '<span class="st-badge">—</span>';
     return c >= 10 ? '<span class="st-badge ok">Alta (' + c + ')</span>' : c >= 7 ? '<span class="st-badge mid">Media (' + c + ')</span>' : '<span class="st-badge bad">Baja (' + c + ')</span>';
   }
@@ -192,19 +195,22 @@
       var opts = '<option value="">Automático' + (i === 0 ? ' (pista de anclaje)' : ' (primera pista)') + '</option>' + ready.filter(function (o) { return o.id !== t.id; }).map(function (o) { return '<option value="' + o.id + '"' + (t.sync_to === o.id ? ' selected' : '') + '>' + esc(o.name) + '</option>'; }).join('');
       return '<tr data-t="' + t.id + '"><td><b>' + esc(t.name) + '</b><div class="st-note">' + (t.role === 'voice' ? 'Voz' : 'Solo sincronizar') + '</div></td>' +
         '<td><input class="input" data-f="offset" type="number" step="0.001" min="0" style="width:110px" value="' + (+t.offset).toFixed(3) + '"> s' + (t.manual_offset ? ' <span class="st-badge mid">manual</span>' : '') + '</td>' +
-        '<td>' + confBadge(t.sync_conf) + '</td><td><select class="input" data-f="sync_to">' + opts + '</select></td>' +
-        '<td><input class="input" data-f="gain_db" type="number" step="0.5" style="width:80px" value="' + (+t.gain_db || 0) + '"> dB</td></tr>';
+        '<td>' + confBadge(t.sync_conf, t.sync_ncc) + '</td><td><select class="input" data-f="sync_to">' + opts + '</select></td>' +
+        '<td><input class="input" data-f="gain_db" type="number" step="0.5" style="width:80px" value="' + (+t.gain_db || 0) + '"> dB</td></tr>' +
+        (t.breaks && t.breaks.length ? '<tr class="st-brk"><td colspan="5"><b>Cortes aplicados a «' + esc(t.name) + '» para seguir a la referencia:</b> ' + t.breaks.map(function (b) { return '<span class="st-badge ' + (b.delta < 0 ? 'mid' : 'bad') + '">' + fmt(b.at) + ' · ' + (b.delta < 0 ? 'recortados ' + Math.abs(b.delta).toFixed(2) + ' s sobrantes' : 'añadidos ' + b.delta.toFixed(2) + ' s de silencio') + '</span>'; }).join(' ') + '</td></tr>' : '') +
+        (i > 0 && !t.manual_offset ? '<tr class="st-brk"><td colspan="5"><label class="st-note" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-seg="' + t.id + '"' + (t.no_segments ? '' : ' checked') + '> Detectar fallos de la referencia (pérdidas de audio o silencios insertados, p. ej. de la P4) y cortar esta pista para que siga alineada</label></td></tr>' : '');
     }).join('');
-    p.innerHTML = '<div class="card st-card"><h2>Sincronización</h2><p class="st-note">Cada pista se alinea comparando la forma de su señal con la de su referencia (por defecto, la primera pista). Funciona porque todos los micros recogen algo de la misma conversación; si la confianza es baja, elige otra referencia (p. ej. la pista de la Zoom) o ajusta el retraso a mano.</p>' +
+    p.innerHTML = '<div class="card st-card"><h2>Sincronización</h2><p class="st-note">Cada pista se alinea comparando la forma de su señal con la de su referencia (por defecto, la primera pista). Funciona porque todos los micros recogen algo de la misma conversación; si la calidad es baja, elige otra referencia o ajusta el retraso a mano. Si la referencia tiene fallos de grabación (p. ej. la P4 pierde audio o mete silencio), la pista se va <b>cortando</b> en esos puntos para seguirla de principio a fin. Si dos pistas salen de la misma grabadora (p. ej. pistas 1 y 3 de la P4), pon el retraso de una a 0 a mano.</p>' +
       '<table class="st-table"><thead><tr><th>Pista</th><th>Empieza en</th><th>Confianza</th><th>Sincronizar con</th><th>Ganancia</th></tr></thead><tbody>' + rows + '</tbody></table>' +
       '<div class="st-row"><button class="btn btn-primary" id="st-sync"' + (jobActive() ? ' disabled' : '') + '>' + (stepDone('sync') ? 'Volver a sincronizar' : 'Sincronizar automáticamente') + '</button>' +
       '<button class="btn" id="st-prev"' + (jobActive() ? ' disabled' : '') + '>Actualizar vista previa</button></div></div>' +
       (S.has_preview ? '<div class="card st-card"><h2>Escucha el resultado</h2><p class="st-note">Mezcla de las pistas de voz ya alineadas. Si las voces se oyen con eco o desfasadas, corrige el retraso y actualiza la vista previa.</p><audio controls preload="none" style="width:100%" src="' + C.base + '&do=audio&v=' + (S.job ? S.job.id : 0) + '"></audio></div>' : '') +
       (stepDone('sync') ? '<div class="st-row"><button class="btn btn-primary" data-go="transcribe">Continuar: transcribir →</button></div>' : '');
+    p.querySelectorAll('[data-seg]').forEach(function (c) { c.onchange = function () { api('track_update', { tid: c.dataset.seg, no_segments: c.checked ? 0 : 1 }).then(refresh); }; });
     el('#st-sync').onclick = function () { runJob('sync'); };
     el('#st-prev').onclick = function () { runJob('preview'); };
     p.querySelectorAll('[data-t] [data-f]').forEach(function (i) {
-      i.onchange = function () { var d = { tid: i.closest('tr').dataset.t }; d[i.dataset.f] = i.value; api('track_update', d).then(refresh).then(function () { render(true); if (i.dataset.f === 'offset') toast('Retraso guardado · actualiza la vista previa'); }); };
+      i.onchange = function () { var d = { tid: i.closest('tr').dataset.t }; d[i.dataset.f] = i.value; api('track_update', d).then(refresh).then(function () { render(true); if (i.dataset.f === 'offset') toast('Retraso guardado · vuelve a sincronizar para actualizar la vista previa'); }); };
     });
     p.querySelectorAll('[data-go]').forEach(function (b) { b.onclick = function () { go(b.dataset.go); }; });
   }

@@ -116,11 +116,12 @@ function studio_job_sync(int $pid, array $params, callable $progress): array {
   if (count($tracks) < 1) throw new RuntimeException('Primero prepara las pistas de audio');
   $byId = []; foreach ($tracks as $t) $byId[$t['id']] = $t;
   $anchor = $tracks[0]['id'];
-  $abs = [$anchor => 0.0]; $conf = [$anchor => null];
+  $abs = [$anchor => 0.0]; $conf = [$anchor => null]; $info = [];
   $envs = [];
   $env = function ($tid) use (&$envs, $pid) { return $envs[$tid] ??= studio_env_load($pid, $tid); };
 
-  // Resuelve cada pista contra su "sync_to" (por defecto, el ancla); respeta las pistas con desfase manual
+  // Resuelve cada pista contra su "sync_to" (por defecto, el ancla); respeta las pistas con desfase manual.
+  // Si la referencia tiene fallos (pierde audio / mete silencio), la pista se recorta para seguirla.
   $pending = array_keys($byId); unset($pending[array_search($anchor, $pending)]);
   $guard = 0; $n = 0; $total = max(1, count($pending));
   while ($pending && $guard++ < 20) {
@@ -131,28 +132,64 @@ function studio_job_sync(int $pid, array $params, callable $progress): array {
       if (!isset($abs[$to])) continue;                      // su referencia aún no está resuelta
       $progress($n / $total * 0.7, 'Sincronizando «' . $t['name'] . '»…');
       if (!empty($t['manual_offset'])) {
-        $abs[$tid] = (float)$t['offset']; $conf[$tid] = null;
+        studio_unbake_track($pid, $tid);
+        $abs[$tid] = (float)$t['offset']; $conf[$tid] = null; $info[$tid] = ['segments' => [], 'breaks' => []];
+        $dur = studio_wav_info(studio_track_paths($pid, $tid)['wav']); $info[$tid]['duration'] = $dur['bytes'] / 2 / $dur['sr'];
+        $info[$tid]['ncc'] = round(studio_ncc100($env($to), studio_env_load($pid, $tid), 0, 1e9, (float)$t['offset'] - $abs[$to]), 3);
       } else {
-        $r = studio_xcorr($env($to), $env($tid));       // b[t] ≈ a[t+offset]
-        $abs[$tid] = $abs[$to] + $r['offset']; $conf[$tid] = $r['confidence'];
+        $P = studio_track_paths($pid, $tid);
+        $rawEnv = studio_env_read($P['src_env']);
+        $rawInfo = studio_wav_info($P['src_wav']);
+        $rawDur = $rawInfo['bytes'] / 2 / $rawInfo['sr'];
+        $r = studio_xcorr($env($to), $rawEnv);              // pista[t] ≈ referencia[t+offset]
+        $seg = empty($t['no_segments'])
+          ? studio_segment_sync($env($to), $rawEnv, $r['offset'], $rawDur)
+          : ['segments' => [['s' => $r['offset'], 'e' => $r['offset'] + $rawDur, 'off' => $r['offset']]], 'breaks' => []];
+        if (count($seg['segments']) > 1) {
+          $dur = studio_bake_track($pid, $tid, $seg['segments']);
+        } else {
+          studio_unbake_track($pid, $tid);
+          $dur = $rawDur;
+        }
+        unset($envs[$tid]);
+        // Calidad real del resultado: correlación entre la referencia y la pista ya alineada
+        $ncc = round(studio_ncc100($env($to), studio_env_load($pid, $tid), 0, 1e9, $seg['segments'][0]['s']), 3);
+        $abs[$tid] = $abs[$to] + $seg['segments'][0]['s'];
+        $conf[$tid] = $r['confidence'];
+        $info[$tid] = ['segments' => count($seg['segments']) > 1 ? $seg['segments'] : [], 'breaks' => $seg['breaks'], 'duration' => $dur, 'ncc' => $ncc];
       }
       unset($pending[$k]); $n++;
     }
   }
-  foreach ($pending as $tid) { $abs[$tid] = 0.0; $conf[$tid] = 0.0; }
+  foreach ($pending as $tid) { $abs[$tid] = 0.0; $conf[$tid] = 0.0; $info[$tid] = ['segments' => [], 'breaks' => []]; }
   $min = min($abs);
-  studio_update_project($pid, function (&$p) use ($abs, $conf, $min, $anchor) {
+  $retranscribe = [];
+  studio_update_project($pid, function (&$p) use ($abs, $conf, $min, $info, &$retranscribe, $pid) {
     foreach ($p['tracks'] as &$t) {
-      if (!isset($abs[$t['id']])) continue;
-      $t['offset'] = round($abs[$t['id']] - $min, 3);
-      $t['sync_conf'] = $conf[$t['id']];
+      $id = $t['id'];
+      if (!isset($abs[$id])) continue;
+      $t['offset'] = round($abs[$id] - $min + 0.0, 3);
+      $t['sync_conf'] = $conf[$id];
+      $t['sync_ncc'] = $info[$id]['ncc'] ?? null;
+      $sig = md5(json_encode($info[$id]['segments'] ?? []));
+      $t['breaks'] = $info[$id]['breaks'] ?? [];
+      if (isset($info[$id]['duration'])) $t['duration'] = round($info[$id]['duration'], 2);
+      // Si el audio de la pista cambió (recortes nuevos o distintos), su transcripción ya no vale
+      if (($t['segments_sig'] ?? md5('[]')) !== $sig) {
+        if (!empty($t['transcribed'])) {
+          $t['transcribed'] = false; $retranscribe[] = $t['name'];
+          @unlink(studio_transcript_path($pid, $id));
+          $p['cuts']['deleted'] = array_values(array_filter($p['cuts']['deleted'], fn($k) => !str_starts_with($k, $id . ':')));
+        }
+        $t['segments_sig'] = $sig;
+      }
     }
     $p['status'] = 'synced';
   });
   $proj = studio_project($pid);
   $progress(0.72, 'Creando vista previa…');
   studio_build_preview($pid, $proj, fn($f) => $progress(0.72 + 0.28 * $f, 'Creando vista previa…'));
-  return ['anchor' => $anchor];
+  return ['anchor' => $anchor, 'retranscribe' => $retranscribe];
 }
 
 function studio_job_preview(int $pid, array $params, callable $progress): array {

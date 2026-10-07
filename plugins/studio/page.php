@@ -74,9 +74,9 @@ function studio_state(array $p): array {
   $tracks = array_map(fn($t) => [
     'id' => $t['id'], 'name' => $t['name'], 'role' => $t['role'] ?? 'voice', 'ready' => !empty($t['ready']),
     'pending' => !empty($t['src']) && empty($t['ready']), 'error' => $t['error'] ?? null,
-    'duration' => $t['duration'] ?? null, 'offset' => $t['offset'] ?? 0, 'sync_conf' => $t['sync_conf'] ?? null,
+    'duration' => $t['duration'] ?? null, 'offset' => $t['offset'] ?? 0, 'sync_conf' => $t['sync_conf'] ?? null, 'sync_ncc' => $t['sync_ncc'] ?? null,
     'sync_to' => $t['sync_to'] ?? '', 'manual_offset' => !empty($t['manual_offset']), 'gain_db' => $t['gain_db'] ?? 0,
-    'transcribed' => !empty($t['transcribed']),
+    'transcribed' => !empty($t['transcribed']), 'breaks' => $t['breaks'] ?? [], 'no_segments' => !empty($t['no_segments']),
   ], $p['tracks']);
   $music = [];
   foreach (['intro', 'outro'] as $k) $music[$k] = !empty($p['music'][$k]['name']) ? ['name' => $p['music'][$k]['name']] : null;
@@ -84,7 +84,8 @@ function studio_state(array $p): array {
   return [
     'id' => (int)$p['id'], 'title' => $p['title'], 'status' => $p['status'], 'podcast' => $podcast,
     'tracks' => $tracks, 'music' => $music, 'settings' => $p['settings'],
-    'job' => $job ? ['id' => (int)$job['id'], 'type' => $job['type'], 'status' => $job['status'], 'progress' => (float)$job['progress'], 'message' => $job['message']] : null,
+    'job' => $job ? ['id' => (int)$job['id'], 'type' => $job['type'], 'status' => $job['status'], 'progress' => (float)$job['progress'], 'message' => $job['message'],
+                'result' => $job['result_json'] ? json_decode($job['result_json'], true) : null] : null,
     'result' => $p['result'], 'has_preview' => is_file($pdir . '/preview.mp3'), 'episode_id' => $p['episode_id'],
     'engine' => studio_engine_ready(), 'inbox' => studio_inbox_list(),
     'limits' => ['upload' => ini_get('upload_max_filesize'), 'post' => ini_get('post_max_size')],
@@ -240,6 +241,7 @@ if ($st_do !== '') {
           }
           if (isset($_POST['offset'])) { $t['offset'] = round(max(0, min(7200, (float)$_POST['offset'])), 3); $t['manual_offset'] = true; $t['sync_conf'] = null; }
           if (!empty($_POST['auto'])) $t['manual_offset'] = false;
+          if (isset($_POST['no_segments'])) $t['no_segments'] = (bool)(int)$_POST['no_segments'];
         }
       });
       studio_json(['ok' => true]);
@@ -254,7 +256,7 @@ if ($st_do !== '') {
         $p['tracks'] = array_values(array_filter($p['tracks'], fn($t) => $t['id'] !== $tid));
         $p['cuts']['deleted'] = array_values(array_filter($p['cuts']['deleted'], fn($k) => !str_starts_with($k, $tid . ':')));
       });
-      foreach (['tracks' => ['wav', 'env'], 'transcripts' => ['json']] as $sub => $exts) foreach ($exts as $x) @unlink(studio_pdir($pid, $sub) . "/$tid.$x");
+      foreach (['tracks' => ['wav', 'env', 'raw.wav', 'raw.env'], 'transcripts' => ['json']] as $sub => $exts) foreach ($exts as $x) @unlink(studio_pdir($pid, $sub) . "/$tid.$x");
       studio_json(['ok' => true]);
     }
 

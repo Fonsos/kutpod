@@ -49,3 +49,16 @@ servicios en `~/.config/systemd/user/kutpod*.{service,timer}`.
   pruebas en casa. Para exponerlo a Internet conviene un proxy inverso con HTTPS delante, o Apache/Nginx.
 - Cada hora de audio y pista ocupa ~300 MB de copia de trabajo mientras editas; en *Exportar* hay «Liberar espacio».
 - Alternativa con contenedor Podman: `installer/container/` (menos probada).
+
+## Grabar con la Zoom P4 (pistas con fallos)
+
+Flujo previsto para tu grabación: la **pista 1** (tu micro) y la **pista 3** (el cohost, grabado por la P4) salen de la
+misma grabadora y duran lo mismo; la **pista 2** es la grabación local del cohost, que hay que sincronizar con la 3.
+
+1. Sube las pistas en este orden: P4 pista 1 (será el ancla), P4 pista 3, pista local del cohost.
+2. Marca la P4 pista 3 como «Solo sincronizar» y ponle el retraso **0** a mano (misma grabadora que la 1).
+3. En la pista local, elige «Sincronizar con: P4 pista 3».
+
+Si la P4 pierde audio o inserta silencio durante la grabación, el plugin lo detecta, **corta la pista local** en esos
+puntos (o añade silencio) para que siga a la P4 de principio a fin, y lo muestra en la pestaña *Sincronización*
+(«0:40 · recortados 2,50 s sobrantes»). El original se conserva hasta que liberes espacio. Se puede desactivar por pista.

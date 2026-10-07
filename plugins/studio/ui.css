@@ -44,3 +44,4 @@
 .st-toast.err{border-color:var(--bad);color:var(--bad)}
 .st-kbd{font:11px ui-monospace,monospace;border:1px solid var(--border-strong);border-radius:4px;padding:1px 5px;color:var(--text-2)}
 @media(max-width:700px){.st-table{font-size:12px}}
+.st-table tr.st-brk td{border-top:0;padding-top:0}

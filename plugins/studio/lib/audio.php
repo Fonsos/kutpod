@@ -122,11 +122,30 @@ function studio_env_build(string $wav, string $out): void {
   file_put_contents($out, $bytes);
 }
 
-/** Envolvente como array de dB (índice = trama de 10 ms de la pista). */
-function studio_env_load(int $pid, string $tid): array {
-  $f = studio_pdir($pid, 'tracks') . "/$tid.env";
+function studio_env_read(string $f): array {
   if (!is_file($f)) return [];
   return array_map(fn($b) => $b / 2.8 - 90, array_values(unpack('C*', file_get_contents($f))));
+}
+
+/** Envolvente (dB, trama de 10 ms) de la copia de trabajo ACTUAL (ya alineada) de la pista. */
+function studio_env_load(int $pid, string $tid): array {
+  return studio_env_read(studio_pdir($pid, 'tracks') . "/$tid.env");
+}
+
+/**
+ * Rutas de una pista. Si se recortó para sincronizarla, el original se guarda como *.raw.*
+ * y *.wav/*.env pasan a ser la versión alineada con la referencia.
+ */
+function studio_track_paths(int $pid, string $tid): array {
+  $d = studio_pdir($pid, 'tracks');
+  $has = is_file("$d/$tid.raw.wav");
+  return [
+    'wav' => "$d/$tid.wav", 'env' => "$d/$tid.env",
+    'raw_wav_path' => "$d/$tid.raw.wav", 'raw_env_path' => "$d/$tid.raw.env",
+    'has_raw' => $has,
+    'src_wav' => $has ? "$d/$tid.raw.wav" : "$d/$tid.wav",   // audio original de la pista
+    'src_env' => $has ? "$d/$tid.raw.env" : "$d/$tid.env",
+  ];
 }
 
 // ── Sincronización por correlación cruzada de envolventes ───────────────────
@@ -233,4 +252,195 @@ function studio_refine(array $envA, array $envB, float $offset): float {
     if ($c > $best) { $best = $c; $bo = $o; }
   }
   return $bo / 100.0;
+}
+
+// ── Sincronización por tramos (fallos de grabación de la referencia) ───────
+//
+// Si la referencia (p. ej. la P4) pierde audio o inserta silencio a mitad de grabación, el desfase
+// entre ambas pistas cambia de golpe. Se detecta comparando por ventanas, se localiza el punto exacto
+// y se reconstruye la pista cortando lo que sobra o insertando silencio, para que quede alineada
+// con la referencia de principio a fin.
+//
+// Convención: pista[t] ≈ referencia[t + offset]  →  t_ref = t_pista + offset.
+
+/** Correlación de Pearson entre la referencia en [t0,t1] y la pista desplazada $off (envolventes a 100 Hz). */
+function studio_ncc100(array $envA, array $envB, float $t0, float $t1, float $off): float {
+  $shift = (int)round($off * 100);
+  $i0 = max((int)round($t0 * 100), $shift, 0);
+  $i1 = min((int)round($t1 * 100), count($envA), count($envB) + $shift);
+  $n = $i1 - $i0;
+  if ($n < 100) return 0.0;
+  $sa = $sb = $saa = $sbb = $sab = 0.0;
+  for ($i = $i0; $i < $i1; $i++) {
+    $x = $envA[$i]; $y = $envB[$i - $shift];
+    $sa += $x; $sb += $y; $saa += $x * $x; $sbb += $y * $y; $sab += $x * $y;
+  }
+  $va = $saa - $sa * $sa / $n; $vb = $sbb - $sb * $sb / $n;
+  if ($va < 1e-6 || $vb < 1e-6) return 0.0;
+  return ($sab - $sa * $sb / $n) / sqrt($va * $vb);
+}
+
+/** Desfase local por ventanas (resolución de 40 ms) alrededor del desfase global $o0. */
+function studio_window_offsets(array $envA, array $envB, float $o0, float $maxDrift = 20.0, float $winSec = 30.0, float $hopSec = 10.0): array {
+  $dt = 0.04;
+  $fa = studio_env_feature($envA, 4); $fb = studio_env_feature($envB, 4);
+  $n = (int)round($winSec / $dt); $hop = (int)round($hopSec / $dt);
+  $kc = (int)round($o0 / $dt); $D = (int)round($maxDrift / $dt);
+  $kmax = $kc + $D;
+  $A = count($fa); $B = count($fb);
+  $m = $n + 2 * $D;
+  $N = 1; while ($N < $m + $n) $N <<= 1;
+  $out = [];
+  for ($a0 = 0; $a0 + $n <= $A; $a0 += $hop) {
+    $x = array_slice($fa, $a0, $n);
+    $mx = array_sum($x) / $n; $vx = 0.0;
+    foreach ($x as $v) $vx += ($v - $mx) ** 2;
+    $sx = sqrt($vx / $n);
+    if ($sx < 0.35) continue;                                   // ventana casi en silencio: no informa
+    foreach ($x as &$v) $v = ($v - $mx) / $sx;
+    unset($v);
+    // y = pista en [a0-kmax, a0-kmax+m); fuera de la pista, ceros (esos desplazamientos no se evalúan)
+    $y0 = $a0 - $kmax; $y = [];
+    for ($i = 0; $i < $m; $i++) { $j = $y0 + $i; $y[$i] = ($j >= 0 && $j < $B) ? $fb[$j] : 0.0; }
+    $sLo = max(0, -$y0); $sHi = min(2 * $D, $B - $y0 - $n);      // desplazamientos con la ventana entera dentro de la pista
+    if ($sHi - $sLo < $D / 2) continue;
+    // correlación r(s) = Σ x[t]·y[s+t]  vía FFT
+    $xr = array_pad($x, $N, 0.0); $xi = array_fill(0, $N, 0.0);
+    $yr = array_pad($y, $N, 0.0); $yi = array_fill(0, $N, 0.0);
+    studio_fft($xr, $xi); studio_fft($yr, $yi);
+    for ($i = 0; $i < $N; $i++) {                                // conj(X)·Y
+      $re = $xr[$i] * $yr[$i] + $xi[$i] * $yi[$i];
+      $im = $xr[$i] * $yi[$i] - $xi[$i] * $yr[$i];
+      $xr[$i] = $re; $xi[$i] = $im;
+    }
+    studio_fft($xr, $xi, true);
+    // desviación local de y (prefijos) para normalizar
+    $p1 = [0.0]; $p2 = [0.0];
+    foreach ($y as $i => $v) { $p1[$i + 1] = $p1[$i] + $v; $p2[$i + 1] = $p2[$i] + $v * $v; }
+    $best = -INF; $bs = 0; $sum = 0.0; $sum2 = 0.0; $cnt = 0;
+    for ($s = $sLo; $s <= $sHi; $s++) {
+      $my = ($p1[$s + $n] - $p1[$s]) / $n;
+      $vy = ($p2[$s + $n] - $p2[$s]) / $n - $my * $my;
+      $c = $vy > 1e-6 ? $xr[$s] / ($n * sqrt($vy)) : 0.0;
+      $sum += $c; $sum2 += $c * $c; $cnt++;
+      if ($c > $best) { $best = $c; $bs = $s; }
+    }
+    $mean = $sum / $cnt; $sd = sqrt(max(1e-12, $sum2 / $cnt - $mean * $mean));
+    $out[] = ['t' => $a0 * $dt, 'off' => ($kmax - $bs) * $dt, 'ncc' => $best, 'conf' => ($best - $mean) / $sd];
+  }
+  return $out;
+}
+
+/** Agrupa ventanas consecutivas con el mismo desfase. Devuelve [['off','t0','t1','n'],…]. */
+function studio_group_offsets(array $w, float $winSec, float $tol = 0.12): array {
+  $good = array_values(array_filter($w, fn($x) => $x['ncc'] >= 0.5 && $x['conf'] >= 3.5));
+  if (count($good) < 3) return [];
+  $med = function (array $l) { sort($l); return $l[intdiv(count($l), 2)]; };
+  $groups = []; $cur = [$good[0]];
+  for ($i = 1; $i < count($good); $i++) {
+    $recent = array_slice(array_column($cur, 'off'), -5);
+    if (abs($good[$i]['off'] - $med($recent)) <= $tol) { $cur[] = $good[$i]; continue; }
+    // ¿cambio sostenido? (la siguiente ventana confirma el nuevo desfase) o valor aislado (se descarta)
+    if ($i + 1 < count($good) && abs($good[$i + 1]['off'] - $good[$i]['off']) <= $tol) { $groups[] = $cur; $cur = [$good[$i]]; }
+  }
+  $groups[] = $cur;
+  $out = [];
+  foreach ($groups as $g) {
+    if (count($g) < 2 && count($groups) > 1) continue;                       // grupo diminuto: ruido
+    $off = $med(array_column($g, 'off'));
+    if ($out && abs($out[count($out) - 1]['off'] - $off) <= $tol) {         // vecinos iguales → unir
+      $out[count($out) - 1]['t1'] = end($g)['t'] + $winSec; $out[count($out) - 1]['n'] += count($g);
+      continue;
+    }
+    $out[] = ['off' => $off, 't0' => $g[0]['t'], 't1' => end($g)['t'] + $winSec, 'n' => count($g)];
+  }
+  return $out;
+}
+
+/** Afina un desfase a 100 Hz (±0,1 s) sobre el tramo [t0,t1] de la referencia. */
+function studio_refine_range(array $envA, array $envB, float $off, float $t0, float $t1): float {
+  $mid = ($t0 + $t1) / 2; $half = min(($t1 - $t0) / 2, 30.0);
+  $best = -INF; $bo = $off;
+  for ($o = $off - 0.1; $o <= $off + 0.1001; $o += 0.01) {
+    $c = studio_ncc100($envA, $envB, $mid - $half, $mid + $half, $o);
+    if ($c > $best) { $best = $c; $bo = $o; }
+  }
+  return round($bo, 3);
+}
+
+/**
+ * Analiza la pista contra la referencia y devuelve los tramos [{s,e,off}] (tiempo de la referencia),
+ * los saltos detectados [{at,delta}] y el nº de ventanas útiles.
+ * delta < 0: la pista tiene audio de más (se recorta) · delta > 0: la referencia metió silencio (se inserta).
+ */
+function studio_segment_sync(array $envRef, array $envTrack, float $o0, float $trackDur): array {
+  $winSec = 24.0; $W = 5.0;
+  $wins = studio_window_offsets($envRef, $envTrack, $o0, 12.0, $winSec, 6.0);
+  $groups = studio_group_offsets($wins, $winSec);
+  if (!$groups) {
+    return ['segments' => [['s' => $o0, 'e' => $o0 + $trackDur, 'off' => $o0]], 'breaks' => [], 'windows' => count($wins)];
+  }
+  foreach ($groups as &$g) $g['off'] = studio_refine_range($envRef, $envTrack, $g['off'], $g['t0'], $g['t1']);
+  unset($g);
+  // Localizar cada salto con precisión: el punto donde deja de encajar el desfase anterior y empieza el nuevo
+  $breaks = [];
+  for ($k = 0; $k + 1 < count($groups); $k++) {
+    $old = $groups[$k]['off']; $new = $groups[$k + 1]['off']; $delta = $new - $old;
+    $lo = $groups[$k]['t1'] - $winSec / 2; $hi = $groups[$k + 1]['t0'] + $winSec / 2;
+    $best = -INF; $bb = ($lo + $hi) / 2;
+    for ($b = $lo; $b <= $hi; $b += 0.05) {
+      $ns = $b + max(0.0, $delta);
+      $sc = studio_ncc100($envRef, $envTrack, $b - $W, $b, $old) + studio_ncc100($envRef, $envTrack, $ns, $ns + $W, $new);
+      if ($sc > $best + 1e-9) { $best = $sc; $bb = $b; }
+    }
+    $breaks[] = ['at' => round($bb, 2), 'delta' => round($delta, 3)];
+  }
+  // Tramos sobre la línea de tiempo de la referencia
+  $segs = [];
+  $last = count($groups) - 1;
+  foreach ($groups as $k => $g) {
+    $s = $k === 0 ? $g['off'] : $breaks[$k - 1]['at'] + max(0.0, $breaks[$k - 1]['delta']);
+    $e = $k === $last ? $g['off'] + $trackDur : $breaks[$k]['at'];
+    if ($e - $s > 0.05) $segs[] = ['s' => round($s, 3), 'e' => round($e, 3), 'off' => $g['off']];
+  }
+  return ['segments' => $segs, 'breaks' => $breaks, 'windows' => count($wins)];
+}
+
+/**
+ * Reconstruye la pista siguiendo los tramos: corta el audio sobrante e inserta silencio donde
+ * la referencia lo tiene, de modo que quede alineada con ella. El original se conserva como *.raw.wav.
+ * Devuelve la duración de la copia alineada (empieza en segments[0].s de la referencia).
+ */
+function studio_bake_track(int $pid, string $tid, array $segs): float {
+  $P = studio_track_paths($pid, $tid);
+  if (!$P['has_raw']) { rename($P['wav'], $P['raw_wav_path']); rename($P['env'], $P['raw_env_path']); }
+  $in = fopen($P['raw_wav_path'], 'rb');
+  $info = studio_wav_info($P['raw_wav_path']);
+  $tmp = $P['wav'] . '.tmp';
+  $out = fopen($tmp, 'wb');
+  fwrite($out, str_repeat("\0", 44));
+  $sr = $info['sr']; $fade = (int)round(0.005 * $sr); $total = 0; $prevE = null;
+  foreach ($segs as $i => $sg) {
+    if ($prevE !== null && $sg['s'] > $prevE + 0.001) {                    // silencio insertado por la referencia
+      $gap = (int)round(($sg['s'] - $prevE) * $sr);
+      fwrite($out, str_repeat("\0\0", $gap)); $total += $gap;
+    }
+    $n = (int)round(($sg['e'] - $sg['s']) * $sr);
+    $start = (int)round(($sg['s'] - $sg['off']) * $sr);
+    studio_wav_copy($in, $info, $out, $start, $n, $i > 0 ? $fade : 0, $i < count($segs) - 1 ? $fade : 0);
+    $total += $n; $prevE = $sg['e'];
+  }
+  fseek($out, 0); fwrite($out, studio_wav_header($total * 2, $sr));
+  fclose($in); fclose($out);
+  rename($tmp, $P['wav']);
+  studio_env_build($P['wav'], $P['env']);
+  return $total / $sr;
+}
+
+/** Devuelve la pista a su audio original (deshace un recorte previo). */
+function studio_unbake_track(int $pid, string $tid): void {
+  $P = studio_track_paths($pid, $tid);
+  if (!$P['has_raw']) return;
+  rename($P['raw_wav_path'], $P['wav']);
+  rename($P['raw_env_path'], $P['env']);
 }
