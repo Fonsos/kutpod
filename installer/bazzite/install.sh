@@ -12,6 +12,7 @@
 #
 # Opciones: --port N · --lan (accesible desde otros equipos) · --whisper / --no-whisper
 #           --gpu (faster-whisper con NVIDIA, experimental) · --yes (sin preguntas)
+#           --studio (activa los plugins web de edición «Estudio» y «Shorts»; experimentales, desactivados por defecto)
 # Variables: KUTPOD_DATA (por defecto ~/.local/share/kutpod) · KUTPOD_INBOX (~/KutPod/inbox)
 #            KUTPOD_ADMIN_PASSWORD (contraseña del admin en modo no interactivo)
 # ============================================================================
@@ -25,7 +26,7 @@ CONF="$DATA/installer.conf"
 UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 APPS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 
-PORT=""; WHISPER=""; GPU=""; LAN=""; YES=0
+PORT=""; WHISPER=""; GPU=""; LAN=""; STUDIO=""; YES=0
 c_ok=$'\e[32m'; c_err=$'\e[31m'; c_off=$'\e[0m'
 say() { printf '%s\n' "$*"; }
 ok()  { printf '%s✓%s %s\n' "$c_ok" "$c_off" "$*"; }
@@ -42,8 +43,9 @@ while [ $# -gt 0 ]; do
     --whisper) WHISPER=1 ;;
     --no-whisper) WHISPER=0 ;;
     --gpu) GPU=1; WHISPER=1 ;;
+    --studio) STUDIO=1 ;;
     --yes|-y) YES=1 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
   esac
   shift
@@ -203,8 +205,13 @@ first_install() {
 }
 
 configure_plugins() {
-  run_app cli/plugin.php activate studio >/dev/null && ok "Plugin «Estudio de edición» activado"
-  run_app cli/plugin.php activate studio-shorts >/dev/null && ok "Plugin «Shorts y Reels» activado"
+  # Los plugins web de edición (Estudio, Shorts) quedan desactivados salvo que se pida con --studio
+  if [ "${STUDIO:-0}" = 1 ]; then
+    run_app cli/plugin.php activate studio >/dev/null && ok "Plugin «Estudio de edición» activado"
+    run_app cli/plugin.php activate studio-shorts >/dev/null && ok "Plugin «Shorts y Reels» activado"
+  else
+    say "Plugins de edición web (Estudio, Shorts): desactivados. Actívalos en Plugins o reinstala con --studio."
+  fi
   if [ "${WHISPER:-0}" = 1 ]; then
     run_app cli/plugin.php set studio_engine faster-whisper >/dev/null
     run_app cli/plugin.php set studio_python "$DATA/fw/bin/python" >/dev/null

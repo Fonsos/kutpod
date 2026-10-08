@@ -28,7 +28,7 @@ UNIT_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/containers/systemd"
 UNIT="$UNIT_DIR/$NAME.container"
 CONF="$DATA/installer.conf"
 
-PORT=""; WHISPER=""; YES=0
+PORT=""; WHISPER=""; STUDIO=""; YES=0
 c_ok=$'\e[32m'; c_err=$'\e[31m'; c_dim=$'\e[2m'; c_off=$'\e[0m'
 say()  { printf '%s\n' "$*"; }
 ok()   { printf '%s✓%s %s\n' "$c_ok" "$c_off" "$*"; }
@@ -46,6 +46,7 @@ while [ $# -gt 0 ]; do
     --port) PORT="${2:?falta el número de puerto}"; shift ;;
     --whisper) WHISPER=1 ;;
     --no-whisper) WHISPER=0 ;;
+    --studio) STUDIO=1 ;;
     --yes|-y) YES=1 ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) die "Opción desconocida: $1" ;;
@@ -142,8 +143,10 @@ first_install() {
 }
 
 configure_plugins() {
-  exec_app php cli/plugin.php activate studio >/dev/null && ok "Plugin «Estudio de edición» activado"
-  exec_app php cli/plugin.php activate studio-shorts >/dev/null && ok "Plugin «Shorts y Reels» activado"
+  if [ "${STUDIO:-0}" = 1 ]; then
+    exec_app php cli/plugin.php activate studio >/dev/null && ok "Plugin «Estudio de edición» activado"
+    exec_app php cli/plugin.php activate studio-shorts >/dev/null && ok "Plugin «Shorts y Reels» activado"
+  fi
   if [ "$WHISPER" = 1 ]; then
     exec_app php cli/plugin.php set studio_engine faster-whisper >/dev/null
     exec_app php cli/plugin.php set studio_python /opt/fw/bin/python >/dev/null

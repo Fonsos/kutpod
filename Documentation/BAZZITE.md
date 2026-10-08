@@ -18,13 +18,16 @@ o desde el código (`git clone …`):
 ```
 
 Pregunta puerto (8080), si quieres **faster-whisper local** y crea la cuenta de administrador. Al terminar:
-`http://localhost:8080/admin` (o «KutPod» en el menú de aplicaciones). El plugin **Estudio de edición** queda activado.
+`http://localhost:8080/admin` (o «KutPod» en el menú de aplicaciones). Los plugins de edición web (**Estudio** y **Shorts**) son experimentales y quedan **desactivados**; actívalos desde *Plugins* o instala con `--studio`.
 
 Opciones: `--port 9000` · `--lan` (accesible desde otros equipos) · `--whisper` / `--no-whisper` ·
-`--gpu` (faster-whisper con NVIDIA, experimental) · `--yes` (sin preguntas; contraseña en `KUTPOD_ADMIN_PASSWORD`).
+`--gpu` (faster-whisper con NVIDIA, experimental) · `--studio` (activa los plugins de edición web) · `--yes` (sin preguntas; contraseña en `KUTPOD_ADMIN_PASSWORD`).
 
-## Probar el Estudio de edición
+## Probar el Estudio de edición (experimental)
 
+La edición de episodios está pensada para vivir en **KutEditor**; este editor web es un extra opcional.
+
+0. Actívalo en *Plugins* (o instala con `--studio`).
 1. *Estudio de edición* en el menú «Producción» → nuevo episodio.
 2. Transcripción: en *Plugins → Estudio → Configurar* elige motor (API tipo OpenAI/Groq o faster-whisper local).
 3. Grabaciones largas: déjalas en `~/KutPod/inbox` y elígelas desde el proyecto («Archivos grandes»).
