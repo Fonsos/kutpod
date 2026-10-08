@@ -1,0 +1,23 @@
+<div class="card st-card">
+  <h2>Shorts y Reels</h2>
+  <p class="st-note">Vídeo vertical 1080×1920 para YouTube Shorts e Instagram Reels, con la portada del podcast, forma de onda, título y subtítulos palabra a palabra. Elige un fragmento de ~1 minuto del episodio exportado.</p>
+  <div class="st-row"><button class="btn" id="sh-suggest">Sugerir fragmentos</button><span class="st-note" id="sh-sug-msg"></span></div>
+  <div id="sh-cands"></div>
+  <div class="st-grid2" style="margin-top:14px">
+    <div class="field"><label class="label">Inicio (s)</label><div class="st-row" style="gap:4px"><button class="btn btn-sm" data-n="s:-0.5">−</button><input class="input" id="sh-s" type="number" step="0.1" min="0" style="width:110px"><button class="btn btn-sm" data-n="s:0.5">+</button></div></div>
+    <div class="field"><label class="label">Fin (s)</label><div class="st-row" style="gap:4px"><button class="btn btn-sm" data-n="e:-0.5">−</button><input class="input" id="sh-e" type="number" step="0.1" min="0" style="width:110px"><button class="btn btn-sm" data-n="e:0.5">+</button></div></div>
+  </div>
+  <div class="st-row" style="margin-top:8px"><span id="sh-dur" class="st-badge">—</span><button class="btn btn-sm" id="sh-play">▶ Escuchar fragmento</button><span class="st-note" id="sh-hint"></span></div>
+  <details style="margin-top:12px" open>
+    <summary class="st-note" style="cursor:pointer">Transcripción final · selecciona texto para fijar inicio y fin</summary>
+    <div id="sh-doc" class="sh-doc"></div>
+  </details>
+  <div class="st-grid2" style="margin-top:14px">
+    <div class="field"><label class="label">Título del vídeo</label><input class="input" id="sh-title" maxlength="90"></div>
+    <div class="field"><label class="label">Nombre del podcast</label><input class="input" id="sh-show" maxlength="60"></div>
+  </div>
+  <div class="st-row" style="margin-top:12px"><button class="btn btn-primary" id="sh-go">Generar vídeo</button></div>
+  <audio id="sh-audio" preload="none"></audio>
+  <h3 style="margin:22px 0 6px;font-size:14px">Vídeos generados</h3>
+  <div id="sh-list" class="sh-list"><span class="st-note">Aún no hay ninguno.</span></div>
+</div>

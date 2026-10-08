@@ -62,3 +62,18 @@ misma grabadora y duran lo mismo; la **pista 2** es la grabación local del coho
 Si la P4 pierde audio o inserta silencio durante la grabación, el plugin lo detecta, **corta la pista local** en esos
 puntos (o añade silencio) para que siga a la P4 de principio a fin, y lo muestra en la pestaña *Sincronización*
 («0:40 · recortados 2,50 s sobrantes»). El original se conserva hasta que liberes espacio. Se puede desactivar por pista.
+
+## Shorts y Reels
+
+Con el plugin **Estudio · Shorts y Reels** (activado por el instalador; si ya tenías KutPod instalado, actívalo en
+*Plugins*), la pestaña *Exportar* de un episodio exportado ofrece:
+
+1. **Sugerir fragmentos**: propone hasta 3 tramos de ~45-60 s que empiezan y acaban en frase, con mucha voz y
+   cambios de interlocutor, fuera de la música de entradilla y de salida.
+2. Ajustar inicio y fin (botones ±0,5 s, o seleccionando texto en la transcripción), escuchar el fragmento y
+   poner título.
+3. **Generar vídeo**: MP4 vertical 1080×1920 (H.264 + AAC) con la portada del podcast, forma de onda, título,
+   nombre del podcast y subtítulos palabra a palabra. Se descarga desde la propia lista.
+
+La portada y el color de acento salen de los ajustes del podcast. Instagram Reels admite hasta 90 s y YouTube
+Shorts hasta 3 min; el panel avisa si te pasas.

@@ -1,0 +1,9 @@
+{
+  "id": "studio-shorts",
+  "name": "Estudio · Shorts y Reels",
+  "version": "1.0.0",
+  "description": "Genera un vídeo vertical de ~1 minuto (YouTube Shorts / Instagram Reels) a partir del episodio exportado: portada, forma de onda, título y subtítulos palabra a palabra. Sugiere los fragmentos más sólidos.",
+  "author": "KutPod",
+  "main": "studio-shorts.php",
+  "requires": ["studio"]
+}

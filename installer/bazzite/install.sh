@@ -204,6 +204,7 @@ first_install() {
 
 configure_plugins() {
   run_app cli/plugin.php activate studio >/dev/null && ok "Plugin «Estudio de edición» activado"
+  run_app cli/plugin.php activate studio-shorts >/dev/null && ok "Plugin «Shorts y Reels» activado"
   if [ "${WHISPER:-0}" = 1 ]; then
     run_app cli/plugin.php set studio_engine faster-whisper >/dev/null
     run_app cli/plugin.php set studio_python "$DATA/fw/bin/python" >/dev/null
