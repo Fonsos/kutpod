@@ -1,0 +1,34 @@
+# KutPod en un servidor con Docker.
+#
+#   cd installer/docker
+#   cp .env.example .env          # opcional: puerto, Whisper…
+#   docker compose up -d --build
+#
+# Abre http://IP-DEL-SERVIDOR:8080 y sigue el instalador web (crea la base de datos en el volumen).
+# Pon delante un proxy inverso con HTTPS (Caddy, Nginx, Traefik…) para publicar el podcast.
+#
+# Actualizar:  git pull && docker compose up -d --build   (los volúmenes se conservan)
+# Copia de seguridad: los volúmenes kutpod-storage (BD y ajustes) y kutpod-media (audios, imágenes).
+services:
+  kutpod:
+    build:
+      context: ../..
+      dockerfile: installer/docker/Dockerfile
+      args:
+        WITH_WHISPER: "${WITH_WHISPER:-0}"
+    image: kutpod:latest
+    container_name: kutpod
+    restart: unless-stopped
+    ports:
+      - "${KUTPOD_PORT:-8080}:80"
+    volumes:
+      - kutpod-storage:/var/www/html/storage
+      - kutpod-media:/var/www/html/media
+      - kutpod-cache:/cache
+    environment:
+      TZ: "${TZ:-Europe/Madrid}"
+
+volumes:
+  kutpod-storage:
+  kutpod-media:
+  kutpod-cache:
