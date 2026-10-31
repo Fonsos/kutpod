@@ -858,6 +858,14 @@ if (copyBtn) {
 }
 
 const copyEmbedBtn = document.getElementById('btn-copy-embed');
+const embedSlugInput = document.getElementById('embed_slug_input');
+if (embedSlugInput) {
+  embedSlugInput.style.cursor = 'pointer';
+  embedSlugInput.title = 'Haz clic para copiar el código iframe';
+  embedSlugInput.addEventListener('click', () => {
+    copyEmbedBtn?.click();
+  });
+}
 if (copyEmbedBtn) {
   copyEmbedBtn.addEventListener('click', function(e) {
     e.preventDefault();
