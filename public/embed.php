@@ -74,8 +74,17 @@ $pSlug = $p['slug'] ?? ($p['id'] ?? '');
 $epSlug = $ep['slug'] ?? ($ep['id'] ?? '');
 $audioSrc = kp_base_url() . "/r/" . rawurlencode($pSlug) . "/" . rawurlencode($epSlug) . "/audio.mp3";
 $cover = $ep['cover'] ?: ($p['cover'] ?? '');
+if (str_starts_with($cover, 'file://')) {
+    $cover = '';
+}
+if (str_starts_with($audioSrc, 'file://')) {
+    $audioSrc = '';
+}
 $accent = $p['color'] ?: '#ff5f7e';
 $fullEpisodeUrl = kp_base_url() . "/@" . rawurlencode($pSlug) . "/" . rawurlencode($epSlug);
+if (str_starts_with($fullEpisodeUrl, 'file://')) {
+    $fullEpisodeUrl = '#';
+}
 $durationSecs = (int)($ep['duration_secs'] ?? 0);
 $durationFmt = $ep['duration'] ?: ($durationSecs > 0 ? kp_fmt_duration($durationSecs) : '0:00');
 ?>

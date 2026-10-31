@@ -480,7 +480,7 @@ $personsInSidebar = $showSidebarAlternate && !empty($sbConfig['show_persons']) &
                     $podcastSlug = $p['id'] ?? ($ep['podcast'] ?? '');
                     $episodeSlug = $ep['id'] ?? '';
                     $embedUrl = kp_base_url() . '/embed/@' . rawurlencode($podcastSlug) . '/' . rawurlencode($episodeSlug);
-                    $iframeCode = '<iframe src="' . e($embedUrl) . '" width="100%" height="160" frameborder="0" scrolling="no" allow="autoplay"></iframe>';
+                    $iframeCode = '<iframe src="' . e($embedUrl) . '" width="100%" height="160" frameborder="0" scrolling="no" allow="encrypted-media; fullscreen"></iframe>';
                   ?>
                     <!-- Incrustar reproductor -->
                     <div class="pub-ep-side-block">
