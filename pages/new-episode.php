@@ -383,11 +383,11 @@ $sections = [
               <div style="display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:0 12px;overflow:hidden;width:100%">
                 <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>/embed/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
                 <input type="text" id="embed_slug_input" readonly class="input" value="<?= e($ep['slug'] ?? '') ?>" style="border:none;background:transparent;padding-left:4px;width:100%;font-weight:600;box-shadow:none;outline:none;cursor:default" placeholder="titulo-del-episodio">
-                <button type="button" class="btn btn-ghost" id="btn-copy-embed" style="border:none;padding:8px;margin-left:4px;cursor:pointer;display:flex;align-items:center;background:transparent" title="Copiar URL del reproductor embebido">
+                <button type="button" class="btn btn-ghost" id="btn-copy-embed" style="border:none;padding:8px;margin-left:4px;cursor:pointer;display:flex;align-items:center;background:transparent" title="Copiar código iframe del reproductor embebido">
                   <?= icon('copy', 14) ?>
                 </button>
               </div>
-              <div class="help" style="margin-top:6px">URL para incrustar el reproductor en páginas web externas o blogs.</div>
+              <div class="help" style="margin-top:6px">Copia el código iframe para incrustar el reproductor en páginas web externas o blogs.</div>
             </div>
           </div>
         </div>
@@ -865,12 +865,13 @@ if (copyEmbedBtn) {
     const podcast = "/embed/@<?= e($p['slug'] ?? $p['id']) ?>/";
     const slug = document.getElementById('embed_slug_input')?.value || document.getElementById('permalink_input')?.value || 'titulo-del-episodio';
     const fullEmbedUrl = domain + podcast + slug;
-    navigator.clipboard.writeText(fullEmbedUrl).then(() => {
+    const iframeCode = '<iframe src="' + fullEmbedUrl + '" width="100%" height="160" frameborder="0" scrolling="no" allow="encrypted-media; fullscreen"></iframe>';
+    navigator.clipboard.writeText(iframeCode).then(() => {
       const originalHTML = copyEmbedBtn.innerHTML;
       copyEmbedBtn.innerHTML = '<?= icon('check', 14) ?>';
       setTimeout(() => { copyEmbedBtn.innerHTML = originalHTML; }, 2000);
     }).catch(err => {
-      alert('Error al copiar la URL: ' + err);
+      alert('Error al copiar el código iframe: ' + err);
     });
   });
 }
