@@ -63,7 +63,13 @@ $categories = [
 function kp_alert_category(array $a): string {
   $k = $a['kind'] ?? '';
   if ($k === 'milestones' || $k === 'hitos') return 'milestones';
-  if ($k === 'downloads') return 'downloads';
+  if ($k === 'downloads' || $k === 'youtube') {
+    $title = mb_strtolower($a['title'] ?? '');
+    if (str_contains($title, 'alcanzadas') || str_contains($title, 'descargas alcanzadas') || str_contains($title, 'hito') || str_contains($title, 'meta')) {
+      return 'milestones';
+    }
+    return 'downloads';
+  }
   if ($k === 'fediverse') return 'fediverse';
   if ($k === 'op3') {
     $title = mb_strtolower($a['title'] ?? '');
@@ -103,13 +109,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($action === 'mark_tab_read') {
     try {
       if ($post_tab === 'downloads') {
-        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind = 'downloads' OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%' AND title NOT LIKE '%meta%'))");
+        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind IN ('downloads', 'youtube') OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%' AND title NOT LIKE '%meta%' AND title NOT LIKE '%hito%'))");
       } elseif ($post_tab === 'milestones') {
-        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind IN ('milestones', 'hitos') OR (kind = 'op3' AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%')))");
+        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind IN ('milestones', 'hitos') OR ((kind = 'op3' OR kind = 'youtube') AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%' OR title LIKE '%hito%')))");
       } elseif ($post_tab === 'fediverse') {
         kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND kind = 'fediverse'");
       } elseif ($post_tab === 'system') {
-        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind NOT IN ('fediverse', 'downloads', 'milestones', 'hitos') AND NOT (kind = 'op3'))");
+        kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL AND (kind NOT IN ('fediverse', 'downloads', 'milestones', 'hitos', 'youtube') AND NOT (kind = 'op3'))");
       } else {
         kp_q("UPDATE alerts SET read_at = datetime('now') WHERE read_at IS NULL");
       }
@@ -158,8 +164,8 @@ try {
   $raw_stats = kp_q("
     SELECT 
       CASE 
-        WHEN kind IN ('milestones', 'hitos') OR (kind = 'op3' AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%')) THEN 'milestones'
-        WHEN kind = 'downloads' OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%') THEN 'downloads'
+        WHEN kind IN ('milestones', 'hitos') OR ((kind = 'op3' OR kind = 'youtube') AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%' OR title LIKE '%hito%')) THEN 'milestones'
+        WHEN kind IN ('downloads', 'youtube') OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%') THEN 'downloads'
         WHEN kind = 'fediverse' THEN 'fediverse'
         ELSE 'system'
       END as cat,
@@ -192,13 +198,13 @@ $offset = ($page - 1) * $perPage;
 $alerts = [];
 try {
   if ($active_tab === 'downloads') {
-    $whereClause = "(kind = 'downloads' OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%' AND title NOT LIKE '%meta%'))";
+    $whereClause = "(kind IN ('downloads', 'youtube') OR (kind = 'op3' AND title NOT LIKE '%alcanzadas%' AND title NOT LIKE '%meta%' AND title NOT LIKE '%hito%'))";
   } elseif ($active_tab === 'milestones') {
-    $whereClause = "(kind IN ('milestones', 'hitos') OR (kind = 'op3' AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%')))";
+    $whereClause = "(kind IN ('milestones', 'hitos') OR ((kind = 'op3' OR kind = 'youtube') AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%' OR title LIKE '%hito%')))";
   } elseif ($active_tab === 'fediverse') {
     $whereClause = "kind = 'fediverse'";
   } elseif ($active_tab === 'system') {
-    $whereClause = "(kind NOT IN ('fediverse', 'downloads', 'milestones', 'hitos') AND NOT (kind = 'op3'))";
+    $whereClause = "(kind NOT IN ('fediverse', 'downloads', 'milestones', 'hitos', 'youtube') AND NOT (kind = 'op3'))";
   } else {
     $whereClause = "1=1";
   }
@@ -708,10 +714,12 @@ $total_unread_all = $stats['all']['unread'] ?? 0;
                   'Like'     => '💖 Me gusta',
                   'Announce' => '🔁 Retoot',
                   'Reply'    => '💬 Comentario',
+                  'YouTube'  => '▶️ YouTube',
+                  'Hito'     => '🏆 Hito',
                   default    => '⚡ ' . $at,
                 };
               ?>
-                <span style="font-size:11.5px;color:var(--text-3);font-weight:500"><?= e($atLabel) ?></span>
+                <span style="font-size:11.5px;color:<?= $at === 'YouTube' ? '#ef4444' : ($at === 'Hito' ? '#f59e0b' : 'var(--text-3)') ?>;font-weight:600"><?= e($atLabel) ?></span>
               <?php endif; ?>
 
               <span class="muted" style="margin-left:auto;font-size:12px;white-space:nowrap" title="<?= e($a['created_at']) ?>">

@@ -32,6 +32,15 @@ function kp_youtube_init_db(): void {
             synced_at TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_yt_podcast ON youtube_episode_stats(podcast_id);
+        CREATE TABLE IF NOT EXISTS youtube_stats_daily (
+            date TEXT NOT NULL,
+            podcast_id INTEGER NOT NULL,
+            views INTEGER NOT NULL DEFAULT 0,
+            likes INTEGER NOT NULL DEFAULT 0,
+            comments INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (date, podcast_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_yt_daily_date ON youtube_stats_daily(date, podcast_id);
     ");
     $initialized = true;
 }
@@ -264,6 +273,13 @@ function kp_youtube_sync_podcast(int $podcastId, ?string &$errorMsg = null): arr
 
     // 4. Algoritmo de emparejamiento inteligente
     $usedEpisodes = [];
+    $existingStats = [];
+    try {
+        $prevRows = kp_all("SELECT episode_id, views FROM youtube_episode_stats WHERE podcast_id = ?", [$podcastId]);
+        foreach ($prevRows as $pr) {
+            $existingStats[(int)$pr['episode_id']] = (int)$pr['views'];
+        }
+    } catch (Throwable $e) {}
 
     foreach ($videos as $vid => $vData) {
         $vTitleNorm = kp_yt_normalize_text($vData['title']);
@@ -315,19 +331,43 @@ function kp_youtube_sync_podcast(int $podcastId, ?string &$errorMsg = null): arr
 
         if ($matchedEpId !== null) {
             $usedEpisodes[$matchedEpId] = true;
+            $oldEpViews = $existingStats[$matchedEpId] ?? 0;
+            $newEpViews = (int)$vData['views'];
+
             $stmt->execute([
                 $matchedEpId,
                 $podcastId,
                 $vid,
                 $vData['title'],
-                $vData['views'],
+                $newEpViews,
                 $vData['likes'],
                 $vData['comments'],
                 $vData['published_at']
             ]);
 
+            // Detección de hitos de vistas alcanzadas
+            $milestones = [100, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
+            foreach ($milestones as $m) {
+                if ($oldEpViews < $m && $newEpViews >= $m) {
+                    try {
+                        $already = kp_one("SELECT 1 FROM alerts WHERE kind = 'youtube' AND title LIKE ? AND body LIKE ? LIMIT 1",
+                            ["%$m vistas%", "%" . $normEpisodes[$matchedEpId]['title'] . "%"]);
+                        if (!$already) {
+                            $emoji = $m >= 10000 ? '🔥' : ($m >= 1000 ? '🎉' : '📈');
+                            kp_alert(
+                                'youtube',
+                                "$emoji $m vistas alcanzadas en YouTube",
+                                "El episodio \"{$normEpisodes[$matchedEpId]['title']}\" ha superado las " . number_format($m) . " vistas en YouTube (" . number_format($newEpViews) . " vistas actuales).",
+                                '/admin/analytics?tab=youtube',
+                                ['action_type' => 'Hito']
+                            );
+                        }
+                    } catch (Throwable $e) {}
+                }
+            }
+
             $matchedCount++;
-            $totalViews += $vData['views'];
+            $totalViews += $newEpViews;
 
             $details[] = [
                 'episode_id'  => $matchedEpId,
@@ -355,6 +395,50 @@ function kp_youtube_sync_podcast(int $podcastId, ?string &$errorMsg = null): arr
 
     // Guardar timestamp de última sincronización
     kp_update_setting('youtube_stats_last_sync', time());
+
+    // Guardar snapshot diario en youtube_stats_daily
+    try {
+        $today = date('Y-m-d');
+        $sumLikes = 0;
+        $sumComments = 0;
+        foreach ($details as $d) {
+            if (!empty($d['matched'])) {
+                $sumLikes += (int)($d['likes'] ?? 0);
+                $sumComments += (int)($d['comments'] ?? 0);
+            }
+        }
+        $pdo->prepare("
+            INSERT INTO youtube_stats_daily (date, podcast_id, views, likes, comments)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(date, podcast_id) DO UPDATE SET
+                views = excluded.views,
+                likes = excluded.likes,
+                comments = excluded.comments
+        ")->execute([$today, $podcastId, $totalViews, $sumLikes, $sumComments]);
+    } catch (Throwable $e) {}
+
+    // Alerta de sincronización si hubo vistas nuevas o iniciales
+    if ($matchedCount > 0) {
+        $prevTotal = array_sum($existingStats);
+        $delta = $totalViews - $prevTotal;
+        if ($delta > 0 || empty($existingStats)) {
+            try {
+                $pod = kp_one("SELECT title FROM podcasts WHERE id = ?", [$podcastId]);
+                $pName = $pod['title'] ?? 'Podcast';
+                $viewsMsg = $delta > 0
+                    ? "+" . number_format($delta) . " nuevas vistas (" . number_format($totalViews) . " totales)"
+                    : number_format($totalViews) . " vistas totales";
+
+                kp_alert(
+                    'youtube',
+                    'Vistas de YouTube sincronizadas',
+                    "Se actualizaron las estadísticas de YouTube para '$pName': $viewsMsg en $matchedCount episodios emparejados.",
+                    '/admin/analytics?tab=youtube',
+                    ['action_type' => 'YouTube']
+                );
+            } catch (Throwable $e) {}
+        }
+    }
 
     return [
         'ok'           => true,
@@ -399,6 +483,87 @@ function kp_youtube_get_podcast_totals(int $podcastId): array {
     } catch (Throwable $e) {
         return $zero;
     }
+}
+
+/**
+ * Devuelve una serie diaria de visualizaciones de YouTube para los días dados.
+ * Clave: 'YYYY-MM-DD' => int (vistas de ese día).
+ */
+function kp_youtube_get_daily_series(array $days, ?int $podcastId = null): array {
+    kp_youtube_init_db();
+    $result = array_fill_keys($days, 0);
+    if (empty($days)) return $result;
+
+    // 1. Verificar si existen registros directos en youtube_stats_daily
+    try {
+        $minDate = reset($days);
+        $maxDate = end($days);
+        $sql = "SELECT date, SUM(views) as v FROM youtube_stats_daily WHERE date >= ? AND date <= ?";
+        $params = [$minDate, $maxDate];
+        if ($podcastId !== null) {
+            $sql .= " AND podcast_id = ?";
+            $params[] = $podcastId;
+        }
+        $sql .= " GROUP BY date";
+        $dailyRows = kp_q($sql, $params);
+        foreach ($dailyRows as $dr) {
+            $d = $dr['date'];
+            if (isset($result[$d])) {
+                $result[$d] = (int)$dr['v'];
+            }
+        }
+    } catch (Throwable $e) {}
+
+    // 2. Si los snapshots diarios acumulados para el rango son 0 o incompletos, mapear vistas por fecha de publicación
+    try {
+        $epSql = "
+            SELECT 
+                y.views,
+                COALESCE(NULLIF(y.published_at, ''), e.published_at, y.synced_at) AS pub_date
+            FROM youtube_episode_stats y
+            LEFT JOIN episodes e ON e.id = y.episode_id
+            WHERE y.views > 0
+        ";
+        $epParams = [];
+        if ($podcastId !== null) {
+            $epSql .= " AND y.podcast_id = ?";
+            $epParams[] = $podcastId;
+        }
+        $epRows = kp_q($epSql, $epParams);
+        $byPubDate = [];
+        foreach ($epRows as $er) {
+            $d = substr((string)$er['pub_date'], 0, 10);
+            if (!empty($d)) {
+                $byPubDate[$d] = ($byPubDate[$d] ?? 0) + (int)$er['views'];
+            }
+        }
+
+        if (array_sum($result) === 0 && !empty($byPubDate)) {
+            foreach ($days as $d) {
+                if (isset($byPubDate[$d])) {
+                    $result[$d] = $byPubDate[$d];
+                }
+            }
+        }
+
+        // Si todavía da 0 pero hay vistas registradas, asociar a la fecha de sincronización
+        if (array_sum($result) === 0) {
+            $syncRows = kp_q("
+                SELECT substr(synced_at, 1, 10) as sdate, SUM(views) as v 
+                FROM youtube_episode_stats 
+                WHERE views > 0 
+                GROUP BY sdate
+            ");
+            foreach ($syncRows as $sr) {
+                $sd = trim($sr['sdate'] ?? '');
+                if (isset($result[$sd])) {
+                    $result[$sd] = (int)$sr['v'];
+                }
+            }
+        }
+    } catch (Throwable $e) {}
+
+    return $result;
 }
 
 /**

@@ -138,7 +138,7 @@ $valid_ranges = ['7d'=>7, '30d'=>30, 'mtd'=>(int)date('j'), 'all'=>3650];
 $days = $valid_ranges[$range] ?? 30;
 
 $active_tab = $_GET['tab'] ?? 'downloads';
-if (!in_array($active_tab, ['downloads', 'location', 'tech'], true)) {
+if (!in_array($active_tab, ['downloads', 'location', 'tech', 'youtube'], true)) {
   $active_tab = 'downloads';
 }
 
@@ -262,7 +262,7 @@ function rng_btn($k, $l, $cur, $tab = 'downloads', $page = 'analytics') {
 <?php else: ?>
 
   <!-- Tarjetas de resumen global -->
-  <div class="stat-grid">
+  <div class="stat-grid <?= kp_plugin_is_active('youtube_stats') ? 'stat-grid-5' : '' ?>">
     <?= stat_card('Descargas totales', number_format($tot), 'download') ?>
     <?= stat_card('Descargas · '.e($range), number_format($tot_period), 'chart') ?>
     <?= stat_card('Oyentes únicos', number_format($unique_listeners), 'users', ['sub'=>'identificados por OP3']) ?>
@@ -287,27 +287,74 @@ function rng_btn($k, $l, $cur, $tab = 'downloads', $page = 'analytics') {
       <?= icon('layers', 16) ?>
       <span>Tecnología</span>
     </button>
+    <?php if (kp_plugin_is_active('youtube_stats')): ?>
+      <button type="button" class="stats-tab-btn <?= $active_tab === 'youtube' ? 'active' : '' ?>" data-tab="youtube" role="tab" aria-selected="<?= $active_tab === 'youtube' ? 'true' : 'false' ?>">
+        <span style="color:#ef4444;display:inline-flex;align-items:center"><?= icon('play', 16) ?></span>
+        <span>YouTube</span>
+        <?php
+          try {
+            $ytCountRow = kp_one("SELECT COUNT(*) as c FROM youtube_episode_stats");
+            $ytCount = (int)($ytCountRow['c'] ?? 0);
+            if ($ytCount > 0): ?>
+              <span class="tab-badge" style="background:rgba(239,68,68,0.15);color:#ef4444" title="<?= $ytCount ?> episodios vinculados con YouTube"><?= $ytCount ?></span>
+            <?php endif;
+          } catch (Throwable $e) {}
+        ?>
+      </button>
+    <?php endif; ?>
   </div>
 
   <!-- PESTAÑA 1: DESCARGAS -->
   <div id="panel-downloads" class="stats-tab-panel <?= $active_tab === 'downloads' ? 'active' : '' ?>">
     <div class="grid-12" style="gap:24px">
       <!-- gráfico de barras interactivo con hover -->
+      <?php
+        $yt_active = kp_plugin_is_active('youtube_stats');
+        $yt_series = $yt_active && function_exists('kp_youtube_get_daily_series') ? kp_youtube_get_daily_series(array_keys($series)) : [];
+        $has_yt_series = !empty(array_filter($yt_series));
+        $chart_max = $max_dl;
+        if ($has_yt_series) {
+          $chart_max = max($max_dl, max($yt_series));
+        }
+      ?>
       <div class="card card-lg span-8" style="padding:28px">
-        <div class="card-head">
+        <div class="card-head" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
           <div>
-            <div class="card-title">Descargas por día</div>
+            <div class="card-title"><?= $has_yt_series ? 'Descargas y Vistas por día' : 'Descargas por día' ?></div>
             <div class="page-sub" style="margin-top:4px;font-size:12.5px">Agregado entre todos los podcasts · últimos <?= count($series) ?> días (pasa el cursor para ver el total)</div>
           </div>
+          <?php if ($has_yt_series): ?>
+            <div class="row" style="gap:14px;font-size:12px">
+              <div class="row" style="gap:6px"><span style="width:10px;height:10px;border-radius:3px;background:var(--accent)"></span>Descargas OP3</div>
+              <div class="row" style="gap:6px;font-weight:600;color:#ef4444"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444"></span>▶️ YouTube</div>
+            </div>
+          <?php endif; ?>
         </div>
         <div style="position:relative;height:260px;margin-top:24px;display:flex;align-items:flex-end;gap:5px">
           <?php foreach ($series as $d => $v):
-            $h = $max_dl > 0 ? ($v / $max_dl) * 100 : 0;
-            $pct_peak = $max_dl > 0 ? round(($v / $max_dl) * 100) : 0;
-            $tip = e($d) . ': ' . number_format($v) . ' descargas (' . $pct_peak . '% del día pico)';
+            $h = $chart_max > 0 ? ($v / $chart_max) * 100 : 0;
+            $yt_v = (int)($yt_series[$d] ?? 0);
+            $yt_h = $chart_max > 0 ? ($yt_v / $chart_max) * 100 : 0;
+
+            if ($has_yt_series) {
+              $tip = e($d) . ': ' . number_format($v) . ' descargas';
+              if ($yt_v > 0) {
+                $tip .= ' · ' . number_format($yt_v) . ' vistas YouTube';
+              }
+            } else {
+              $pct_peak = $max_dl > 0 ? round(($v / $max_dl) * 100) : 0;
+              $tip = e($d) . ': ' . number_format($v) . ' descargas (' . $pct_peak . '% del día pico)';
+            }
           ?>
-            <div class="chart-day-bar-wrap" data-tooltip="<?= $tip ?>" data-label="<?= e($d) ?>" data-count="<?= number_format($v) ?>">
-              <div class="chart-day-bar" style="height:<?= max(2, $h) ?>%"></div>
+            <div class="chart-day-bar-wrap <?= $has_yt_series ? 'has-yt' : '' ?>" data-tooltip="<?= $tip ?>" data-label="<?= e($d) ?>" data-count="<?= number_format($v) ?>">
+              <?php if ($has_yt_series): ?>
+                <div style="display:flex;align-items:flex-end;gap:2px;width:100%;height:100%">
+                  <div class="chart-day-bar" style="height:<?= max(2, $h) ?>%;flex:1;background:var(--accent)" title="Descargas: <?= number_format($v) ?>"></div>
+                  <div class="chart-day-bar" style="height:<?= max($yt_v > 0 ? 2 : 0, $yt_h) ?>%;flex:1;background:#ef4444" title="YouTube: <?= number_format($yt_v) ?>"></div>
+                </div>
+              <?php else: ?>
+                <div class="chart-day-bar" style="height:<?= max(2, $h) ?>%"></div>
+              <?php endif; ?>
             </div>
           <?php endforeach; ?>
         </div>
@@ -649,6 +696,217 @@ function rng_btn($k, $l, $cur, $tab = 'downloads', $page = 'analytics') {
       </div>
     </div>
   </div>
+
+  <?php if (kp_plugin_is_active('youtube_stats')): ?>
+  <!-- PESTAÑA 4: YOUTUBE -->
+  <div id="panel-youtube" class="stats-tab-panel <?= $active_tab === 'youtube' ? 'active' : '' ?>">
+    <?php
+      $yt_summary = kp_one("
+        SELECT 
+          COALESCE(SUM(views), 0)    AS total_views,
+          COALESCE(SUM(likes), 0)    AS total_likes,
+          COALESCE(SUM(comments), 0) AS total_comments,
+          COUNT(episode_id)          AS total_episodes
+        FROM youtube_episode_stats
+      ") ?: ['total_views'=>0, 'total_likes'=>0, 'total_comments'=>0, 'total_episodes'=>0];
+
+      $yt_episodes = kp_q("
+        SELECT 
+          y.*,
+          e.title AS ep_title,
+          e.season,
+          e.number,
+          e.cover AS ep_cover,
+          p.title AS podcast_title,
+          p.slug  AS podcast_slug,
+          p.cover AS podcast_cover
+        FROM youtube_episode_stats y
+        JOIN episodes e ON e.id = y.episode_id
+        JOIN podcasts p ON p.id = y.podcast_id
+        ORDER BY y.views DESC
+      ") ?: [];
+
+      $max_yt_views = !empty($yt_episodes) ? max(1, (int)$yt_episodes[0]['views']) : 1;
+      $engagement_rate = $yt_summary['total_views'] > 0 
+        ? round((($yt_summary['total_likes'] + $yt_summary['total_comments']) / $yt_summary['total_views']) * 100, 2)
+        : 0;
+    ?>
+
+    <!-- Métricas destacadas de YouTube -->
+    <div class="stat-grid stat-grid-5" style="margin-bottom: 24px;">
+      <div class="stat">
+        <div class="stat-head">
+          <div class="stat-label">Visualizaciones</div>
+          <div class="stat-icon" style="color:#ef4444"><?= icon('play', 14) ?></div>
+        </div>
+        <div class="stat-value tabular" style="color:#ef4444"><?= number_format($yt_summary['total_views']) ?></div>
+        <div class="stat-sub">Reproducciones en YouTube</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <div class="stat-label">Me gusta (Likes)</div>
+          <div class="stat-icon"><?= icon('star', 14) ?></div>
+        </div>
+        <div class="stat-value tabular"><?= number_format($yt_summary['total_likes']) ?></div>
+        <div class="stat-sub">Interacciones positivas</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <div class="stat-label">Comentarios</div>
+          <div class="stat-icon"><?= icon('inbox', 14) ?></div>
+        </div>
+        <div class="stat-value tabular"><?= number_format($yt_summary['total_comments']) ?></div>
+        <div class="stat-sub">Opiniones de la audiencia</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <div class="stat-label">Engagement</div>
+          <div class="stat-icon"><?= icon('award', 14) ?></div>
+        </div>
+        <div class="stat-value tabular"><?= $engagement_rate ?>%</div>
+        <div class="stat-sub">Tasa de interacción global</div>
+      </div>
+      <div class="stat">
+        <div class="stat-head">
+          <div class="stat-label">Episodios Sincronizados</div>
+          <div class="stat-icon"><?= icon('check', 14) ?></div>
+        </div>
+        <div class="stat-value tabular"><?= number_format($yt_summary['total_episodes']) ?></div>
+        <div class="stat-sub">De tus listas RSS</div>
+      </div>
+    </div>
+
+    <!-- Gráfico dedicado de visualizaciones de YouTube -->
+    <?php
+      $yt_chart_series = function_exists('kp_youtube_get_daily_series') ? kp_youtube_get_daily_series(array_keys($series)) : [];
+      $yt_chart_max = !empty($yt_chart_series) ? max(array_merge([1], $yt_chart_series)) : 1;
+      $has_yt_chart_data = !empty(array_filter($yt_chart_series));
+    ?>
+    <div class="card card-lg" style="padding: 24px; margin-bottom: 24px;">
+      <div class="card-head" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <div class="card-title" style="display:flex; align-items:center; gap:8px;">
+            <span style="color:#ef4444; display:inline-flex; align-items:center;"><?= icon('play', 16) ?></span>
+            <span>Visualizaciones en YouTube · últimos <?= count($series) ?> días</span>
+          </div>
+          <div class="page-sub" style="margin-top:4px; font-size:12.5px;">
+            Actividad y visualizaciones sincronizadas desde tu canal de YouTube
+          </div>
+        </div>
+        <div class="row" style="gap:6px; font-size:12px; font-weight:600; color:#ef4444;">
+          <span style="width:10px; height:10px; border-radius:3px; background:#ef4444;"></span>
+          ▶️ Vistas de YouTube
+        </div>
+      </div>
+
+      <div style="position:relative; height:220px; margin-top:24px; display:flex; align-items:flex-end; gap:5px;">
+        <?php foreach ($yt_chart_series as $d => $yv):
+          $yh = $yt_chart_max > 0 ? ($yv / $yt_chart_max) * 100 : 0;
+          $ytip = e($d) . ': ' . number_format($yv) . ' visualizaciones en YouTube';
+        ?>
+          <div class="chart-day-bar-wrap" data-tooltip="<?= $ytip ?>" data-label="<?= e($d) ?>" data-count="<?= number_format($yv) ?>">
+            <div class="chart-day-bar" style="height:<?= max($yv > 0 ? 3 : 1, $yh) ?>%; background:#ef4444;" title="<?= $ytip ?>"></div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
+    <!-- Tabla Detallada de Episodios en YouTube -->
+    <div class="card card-lg" style="padding: 24px;">
+      <div class="card-head" style="margin-bottom: 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <div class="card-title" style="font-size:16px;">Rendimiento de Episodios en YouTube</div>
+          <div class="help" style="margin-top:4px;">Episodios ordenados por volumen de visualizaciones con sus interacciones correspondientes.</div>
+        </div>
+        <a class="btn btn-ghost" href="/admin/plugins?action=settings&plugin=youtube_stats" style="font-size:12.5px; display:inline-flex; align-items:center; gap:6px;">
+          <?= icon('settings', 13) ?> Ajustes del Plugin
+        </a>
+      </div>
+
+      <?php if (empty($yt_episodes)): ?>
+        <div class="muted" style="padding: 40px 0; text-align: center;">
+          <?= icon('play', 32) ?>
+          <p style="margin-top:12px; font-size:14px;">No hay episodios sincronizados con YouTube todavía.</p>
+          <a class="btn btn-primary" href="/admin/plugins?action=settings&plugin=youtube_stats" style="margin-top:8px;">
+            Configurar Playlist y Sincronizar
+          </a>
+        </div>
+      <?php else: ?>
+        <div style="overflow-x: auto;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid var(--border); color: var(--text-3); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;">
+                <th style="padding: 10px 12px; width: 45%;">Episodio</th>
+                <th style="padding: 10px 12px; width: 25%;">Visualizaciones</th>
+                <th style="padding: 10px 12px; text-align: right; width: 15%;">Me gusta</th>
+                <th style="padding: 10px 12px; text-align: right; width: 15%;">Comentarios</th>
+              </tr>
+            </thead>
+            <tbody>
+              <?php foreach ($yt_episodes as $idx => $yep): ?>
+                <?php
+                  $pct = round(($yep['views'] / $max_yt_views) * 100, 1);
+                  $cover = $yep['ep_cover'] ?: ($yep['podcast_cover'] ?: '/assets/cover-default.png');
+                  $epNum = '';
+                  if (!empty($yep['season']) && !empty($yep['number'])) {
+                    $epNum = 'T' . $yep['season'] . ' · E' . $yep['number'];
+                  } elseif (!empty($yep['number'])) {
+                    $epNum = 'Episodio ' . $yep['number'];
+                  }
+                ?>
+                <tr style="border-bottom: 1px solid var(--border); transition: background 0.12s;" onmouseover="this.style.background='var(--surface-2)'" onmouseout="this.style.background='transparent'">
+                  <td style="padding: 12px;">
+                    <div style="display:flex; align-items:center; gap:12px;">
+                      <div style="font-weight:700; color:var(--text-3); font-size:12px; min-width:20px; text-align:center;">
+                        #<?= $idx + 1 ?>
+                      </div>
+                      <div style="width:42px; height:42px; border-radius:8px; background:var(--surface-3) url('<?= e($cover) ?>') center/cover; flex-shrink:0; border:1px solid var(--border);"></div>
+                      <div style="min-width:0;">
+                        <a href="https://www.youtube.com/watch?v=<?= urlencode($yep['video_id']) ?>" target="_blank" rel="noopener" style="font-weight:600; color:var(--text); text-decoration:none; display:inline-flex; align-items:center; gap:5px;" onmouseover="this.style.color='#ef4444'" onmouseout="this.style.color='var(--text)'">
+                          <span><?= e($yep['ep_title']) ?></span>
+                          <span style="font-size:11px; color:#ef4444;"><?= icon('externalLink', 11) ?></span>
+                        </a>
+                        <div style="font-size:11.5px; color:var(--text-3); margin-top:2px;">
+                          <span><?= e($yep['podcast_title']) ?></span>
+                          <?php if ($epNum): ?>
+                            <span> · <?= e($epNum) ?></span>
+                          <?php endif; ?>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td style="padding: 12px; vertical-align:middle;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                      <span style="font-weight:700; color:#ef4444; font-size:14px;" class="tabular">
+                        <?= number_format($yep['views']) ?>
+                      </span>
+                      <span style="font-size:11px; color:var(--text-3);"><?= $pct ?>%</span>
+                    </div>
+                    <div style="height:5px; border-radius:3px; background:var(--surface-3); overflow:hidden;">
+                      <div style="width:<?= max(2, $pct) ?>%; height:100%; background:#ef4444; border-radius:3px;"></div>
+                    </div>
+                  </td>
+                  <td style="padding: 12px; text-align:right; font-weight:600; vertical-align:middle;" class="tabular">
+                    <span style="display:inline-flex; align-items:center; gap:4px;">
+                      <?= number_format($yep['likes']) ?>
+                      <span style="color:var(--text-3); font-size:12px;"><?= icon('star', 12) ?></span>
+                    </span>
+                  </td>
+                  <td style="padding: 12px; text-align:right; font-weight:600; vertical-align:middle;" class="tabular">
+                    <span style="display:inline-flex; align-items:center; gap:4px;">
+                      <?= number_format($yep['comments']) ?>
+                      <span style="color:var(--text-3); font-size:12px;"><?= icon('inbox', 12) ?></span>
+                    </span>
+                  </td>
+                </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        </div>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 
   <!-- JSON con datos de países para el mapa interactivo -->
   <script type="application/json" id="map-country-data" data-total="<?= (int)$countries_total ?>"><?= json_encode($countries_agg) ?></script>

@@ -156,22 +156,49 @@ try {
       $all_series[] = ['p' => $p, 'pts' => $series_pts];
     }
 
+    // Serie de YouTube si el plugin está activo
+    $has_yt_data = false;
+    if (kp_plugin_is_active('youtube_stats') && function_exists('kp_youtube_get_daily_series')) {
+      $yt_daily = kp_youtube_get_daily_series($days);
+      if (array_sum($yt_daily) > 0) {
+        $has_yt_data = true;
+        $yt_pts = [];
+        foreach ($days as $d) {
+          $val = $yt_daily[$d] ?? 0;
+          if ($val > $max_val) $max_val = $val;
+          $yt_pts[] = ['d' => $d, 'v' => $val];
+        }
+        $all_series[] = [
+          'p' => [
+            'id'         => 'youtube',
+            'title'      => 'YouTube',
+            'color'      => '#ef4444',
+            'is_youtube' => true,
+          ],
+          'pts' => $yt_pts
+        ];
+      }
+    }
+
     echo '<svg viewBox="0 0 '.$W.' '.$H.'" preserveAspectRatio="none" style="width:100%;height:220px;overflow:visible">';
     foreach ([0.25, 0.5, 0.75] as $g) echo '<line x1="0" x2="'.$W.'" y1="'.($H*$g).'" y2="'.($H*$g).'" stroke="var(--border)" stroke-dasharray="2 4"/>';
     
-    if ($all_zero) {
-      echo '<text x="'.($W/2).'" y="'.($H/2).'" text-anchor="middle" fill="var(--text-3)" font-size="13" font-family="Inter,system-ui">Esperando datos de OP3…</text>';
+    if ($all_zero && !$has_yt_data) {
+      echo '<text x="'.($W/2).'" y="'.($H/2).'" text-anchor="middle" fill="var(--text-3)" font-size="13" font-family="Inter,system-ui">Esperando datos…</text>';
     } else {
       foreach ($all_series as $s) {
         $pts = [];
         $circles = [];
+        $is_yt = !empty($s['p']['is_youtube']);
+        $unit_str = $is_yt ? 'vistas' : 'descargas';
+        $prefix_str = $is_yt ? '▶️ ' : '';
         foreach ($s['pts'] as $k => $pt) {
           $x = ($k / max(1, $period - 1)) * $W;
           $y = $H - (($pt['v'] / $max_val) * $H * 0.9);
           $pts[] = $x . ',' . $y;
           if ($pt['v'] > 0) {
             $d_fmt = date('d M, Y', strtotime($pt['d']));
-            $tip_html = '<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:'.e($s['p']['color']).'"></span><strong style="color:var(--text)">'.e($s['p']['title']).'</strong></div><div style="font-size:11px;color:var(--text-3);margin-top:2px">'.e($d_fmt).'</div><div style="font-size:13px;font-weight:600;margin-top:4px;color:var(--text)">'.number_format($pt['v']).' descargas</div>';
+            $tip_html = '<div style="display:flex;align-items:center;gap:6px"><span style="width:8px;height:8px;border-radius:50%;background:'.e($s['p']['color']).'"></span><strong style="color:var(--text)">'.$prefix_str.e($s['p']['title']).'</strong></div><div style="font-size:11px;color:var(--text-3);margin-top:2px">'.e($d_fmt).'</div><div style="font-size:13px;font-weight:600;margin-top:4px;color:var(--text)">'.number_format($pt['v']).' '.$unit_str.'</div>';
 
             $circles[] = '<g class="chart-point-hit" data-tooltip-html="'.htmlspecialchars($tip_html, ENT_QUOTES, 'UTF-8').'">'
               . '<circle cx="'.$x.'" cy="'.$y.'" r="10" fill="transparent" />'
@@ -179,7 +206,8 @@ try {
               . '</g>';
           }
         }
-        echo '<polyline points="'.implode(' ', $pts).'" fill="none" stroke="'.e($s['p']['color']).'" stroke-width="2" opacity="0.85"/>';
+        $sw = $is_yt ? '2.5' : '2';
+        echo '<polyline points="'.implode(' ', $pts).'" fill="none" stroke="'.e($s['p']['color']).'" stroke-width="'.$sw.'" opacity="0.9"/>';
         echo implode('', $circles);
       }
     }
@@ -189,6 +217,9 @@ try {
     <?php foreach ($podcasts as $p): ?>
       <div class="row" style="gap:6px;font-size:12px"><span style="width:10px;height:10px;border-radius:3px;background:<?= e($p['color']) ?>"></span><?= e($p['title']) ?></div>
     <?php endforeach; ?>
+    <?php if ($has_yt_data): ?>
+      <div class="row" style="gap:6px;font-size:12px;font-weight:600;color:#ef4444"><span style="width:10px;height:10px;border-radius:3px;background:#ef4444"></span>▶️ YouTube (vistas)</div>
+    <?php endif; ?>
   </div>
 </div>
 
