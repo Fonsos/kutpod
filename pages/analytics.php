@@ -267,6 +267,7 @@ function rng_btn($k, $l, $cur, $tab = 'downloads', $page = 'analytics') {
     <?= stat_card('Descargas · '.e($range), number_format($tot_period), 'chart') ?>
     <?= stat_card('Oyentes únicos', number_format($unique_listeners), 'users', ['sub'=>'identificados por OP3']) ?>
     <?= stat_card('Podcasts activos', (string)count($podcasts), 'mic') ?>
+    <?php kp_do_action('analytics_stat_grid'); ?>
   </div>
 
   <!-- Barra de pestañas organizadas por tipo -->
