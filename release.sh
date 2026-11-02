@@ -66,11 +66,23 @@ if [[ "$confirm" != "s" && "$confirm" != "S" ]]; then
   exit 0
 fi
 
-# --- 1. Actualizar version.php ---
+# --- 1. Git stage de archivos modificados y versión ---
+UNSTAGED=$(git status --porcelain | grep -v 'version.php' | wc -l || true)
+
+if [[ "$UNSTAGED" -gt 0 ]]; then
+  echo "📋 Hay $UNSTAGED archivo(s) modificados sin stage."
+  read -rp "¿Incluirlos en este release? (s/N) " inc
+  if [[ "$inc" == "s" || "$inc" == "S" ]]; then
+    git add -A
+  fi
+fi
+
+# Actualizar version.php y añadirlo al stage
 sed -i "s/KUTPOD_VERSION',\s*'$CURRENT'/KUTPOD_VERSION', '$NEW'/" "$VERSION_FILE"
+git add version.php
 echo "✅ version.php actualizado a $NEW"
 
-# --- 2. Crear el ZIP de producción limpio ---
+# --- 2. Crear el ZIP de producción limpio (ahora incluye archivos recién añadidos) ---
 ZIP_NAME="kutpod-v${NEW}.zip"
 ZIP_PATH="/tmp/$ZIP_NAME"
 
@@ -103,19 +115,6 @@ ZIP_SIZE=$(du -h "$ZIP_PATH" | cut -f1)
 echo "✅ ZIP creado: $ZIP_NAME ($ZIP_SIZE)"
 
 # --- 3. Git: commit + tag dentro del repositorio de KutPod ---
-UNSTAGED=$(git status --porcelain | grep -v 'version.php' | wc -l || true)
-
-if [[ "$UNSTAGED" -gt 0 ]]; then
-  echo "📋 Hay $UNSTAGED archivo(s) modificados sin stage."
-  read -rp "¿Incluirlos en este release? (s/N) " inc
-  if [[ "$inc" == "s" || "$inc" == "S" ]]; then
-    git add -A
-  fi
-fi
-
-# Asegurar stage de version.php
-git add version.php
-
 git commit -m "Release KutPod v$NEW"
 git tag -a "v$NEW" -m "KutPod v$NEW"
 echo "✅ Commit y tag v$NEW creados"
