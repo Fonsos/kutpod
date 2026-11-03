@@ -36,13 +36,63 @@ function kp_youtube_init_db(): void {
             date TEXT NOT NULL,
             podcast_id INTEGER NOT NULL,
             views INTEGER NOT NULL DEFAULT 0,
+            total_views INTEGER NOT NULL DEFAULT 0,
             likes INTEGER NOT NULL DEFAULT 0,
             comments INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (date, podcast_id)
         );
         CREATE INDEX IF NOT EXISTS idx_yt_daily_date ON youtube_stats_daily(date, podcast_id);
     ");
+
+    try {
+        $pdo->exec("ALTER TABLE youtube_stats_daily ADD COLUMN total_views INTEGER NOT NULL DEFAULT 0");
+    } catch (Throwable $e) {}
+
     $initialized = true;
+    kp_youtube_migrate_daily_stats();
+}
+
+/**
+ * Migra y repara los registros de youtube_stats_daily para asegurar que 'views'
+ * almacene únicamente las nuevas visualizaciones de cada día (delta) y no el total acumulado.
+ */
+function kp_youtube_migrate_daily_stats(): void {
+    static $migrated = false;
+    if ($migrated) return;
+    $migrated = true;
+
+    try {
+        $podcasts = kp_q("SELECT DISTINCT podcast_id FROM youtube_stats_daily");
+        foreach ($podcasts as $p) {
+            $pid = (int)$p['podcast_id'];
+            $rows = kp_q("SELECT date, views, total_views FROM youtube_stats_daily WHERE podcast_id = ? ORDER BY date ASC", [$pid]);
+            if (empty($rows)) continue;
+
+            $prevTotal = 0;
+            foreach ($rows as $idx => $r) {
+                $rawViews = (int)$r['views'];
+                $rawTotal = (int)($r['total_views'] ?? 0);
+
+                // Si total_views es 0 pero views tiene el total histórico acumulado
+                $currentTotal = max($rawTotal, $rawViews);
+
+                if ($idx === 0) {
+                    // El primer día es la línea base de inicio: si views contenía el total acumulado (>50), el delta inicial es 0
+                    $delta = ($rawTotal > 0 && $rawViews < $rawTotal) ? $rawViews : ($rawViews > 50 ? 0 : $rawViews);
+                } else {
+                    $delta = max(0, $currentTotal - $prevTotal);
+                }
+
+                kp_db()->prepare("
+                    UPDATE youtube_stats_daily 
+                    SET views = ?, total_views = ? 
+                    WHERE date = ? AND podcast_id = ?
+                ")->execute([$delta, $currentTotal, $r['date'], $pid]);
+
+                $prevTotal = $currentTotal;
+            }
+        }
+    } catch (Throwable $e) {}
 }
 
 // Inicializar DB al cargar el plugin
@@ -396,7 +446,7 @@ function kp_youtube_sync_podcast(int $podcastId, ?string &$errorMsg = null): arr
     // Guardar timestamp de última sincronización
     kp_update_setting('youtube_stats_last_sync', time());
 
-    // Guardar snapshot diario en youtube_stats_daily
+    // Guardar snapshot diario en youtube_stats_daily con solo las nuevas vistas del día
     try {
         $today = date('Y-m-d');
         $sumLikes = 0;
@@ -407,14 +457,36 @@ function kp_youtube_sync_podcast(int $podcastId, ?string &$errorMsg = null): arr
                 $sumComments += (int)($d['comments'] ?? 0);
             }
         }
+
+        // Buscar el último snapshot registrado antes de hoy para este podcast
+        $prevDayRow = kp_one("
+            SELECT total_views, views 
+            FROM youtube_stats_daily 
+            WHERE podcast_id = ? AND date < ? 
+            ORDER BY date DESC LIMIT 1
+        ", [$podcastId, $today]);
+
+        $baselineViews = 0;
+        if ($prevDayRow) {
+            $baselineViews = (int)($prevDayRow['total_views'] > 0 ? $prevDayRow['total_views'] : $prevDayRow['views']);
+        } elseif (!empty($existingStats)) {
+            $baselineViews = array_sum($existingStats);
+        } else {
+            // Primera sincronización absoluta: el total histórico es la línea base de partida
+            $baselineViews = $totalViews;
+        }
+
+        $dailyNewViews = max(0, $totalViews - $baselineViews);
+
         $pdo->prepare("
-            INSERT INTO youtube_stats_daily (date, podcast_id, views, likes, comments)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO youtube_stats_daily (date, podcast_id, views, total_views, likes, comments)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(date, podcast_id) DO UPDATE SET
-                views = excluded.views,
-                likes = excluded.likes,
-                comments = excluded.comments
-        ")->execute([$today, $podcastId, $totalViews, $sumLikes, $sumComments]);
+                views       = excluded.views,
+                total_views = excluded.total_views,
+                likes       = excluded.likes,
+                comments    = excluded.comments
+        ")->execute([$today, $podcastId, $dailyNewViews, $totalViews, $sumLikes, $sumComments]);
     } catch (Throwable $e) {}
 
     // Alerta de sincronización si hubo vistas nuevas o iniciales
@@ -487,17 +559,18 @@ function kp_youtube_get_podcast_totals(int $podcastId): array {
 
 /**
  * Devuelve una serie diaria de visualizaciones de YouTube para los días dados.
- * Clave: 'YYYY-MM-DD' => int (vistas de ese día).
+ * Clave: 'YYYY-MM-DD' => int (solo las NUEVAS visualizaciones registradas ese día).
  */
 function kp_youtube_get_daily_series(array $days, ?int $podcastId = null): array {
     kp_youtube_init_db();
     $result = array_fill_keys($days, 0);
     if (empty($days)) return $result;
 
-    // 1. Verificar si existen registros directos en youtube_stats_daily
+    $minDate = reset($days);
+    $maxDate = end($days);
+
+    // Obtener las nuevas visualizaciones por día desde youtube_stats_daily
     try {
-        $minDate = reset($days);
-        $maxDate = end($days);
         $sql = "SELECT date, SUM(views) as v FROM youtube_stats_daily WHERE date >= ? AND date <= ?";
         $params = [$minDate, $maxDate];
         if ($podcastId !== null) {
@@ -509,56 +582,7 @@ function kp_youtube_get_daily_series(array $days, ?int $podcastId = null): array
         foreach ($dailyRows as $dr) {
             $d = $dr['date'];
             if (isset($result[$d])) {
-                $result[$d] = (int)$dr['v'];
-            }
-        }
-    } catch (Throwable $e) {}
-
-    // 2. Si los snapshots diarios acumulados para el rango son 0 o incompletos, mapear vistas por fecha de publicación
-    try {
-        $epSql = "
-            SELECT 
-                y.views,
-                COALESCE(NULLIF(y.published_at, ''), e.published_at, y.synced_at) AS pub_date
-            FROM youtube_episode_stats y
-            LEFT JOIN episodes e ON e.id = y.episode_id
-            WHERE y.views > 0
-        ";
-        $epParams = [];
-        if ($podcastId !== null) {
-            $epSql .= " AND y.podcast_id = ?";
-            $epParams[] = $podcastId;
-        }
-        $epRows = kp_q($epSql, $epParams);
-        $byPubDate = [];
-        foreach ($epRows as $er) {
-            $d = substr((string)$er['pub_date'], 0, 10);
-            if (!empty($d)) {
-                $byPubDate[$d] = ($byPubDate[$d] ?? 0) + (int)$er['views'];
-            }
-        }
-
-        if (array_sum($result) === 0 && !empty($byPubDate)) {
-            foreach ($days as $d) {
-                if (isset($byPubDate[$d])) {
-                    $result[$d] = $byPubDate[$d];
-                }
-            }
-        }
-
-        // Si todavía da 0 pero hay vistas registradas, asociar a la fecha de sincronización
-        if (array_sum($result) === 0) {
-            $syncRows = kp_q("
-                SELECT substr(synced_at, 1, 10) as sdate, SUM(views) as v 
-                FROM youtube_episode_stats 
-                WHERE views > 0 
-                GROUP BY sdate
-            ");
-            foreach ($syncRows as $sr) {
-                $sd = trim($sr['sdate'] ?? '');
-                if (isset($result[$sd])) {
-                    $result[$sd] = (int)$sr['v'];
-                }
+                $result[$d] = max(0, (int)$dr['v']);
             }
         }
     } catch (Throwable $e) {}
