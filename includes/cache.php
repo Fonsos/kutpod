@@ -54,8 +54,10 @@ function kp_cache_get(string $key, $default = null) {
 
     if ($row) {
         if ($row['expires_at'] >= time()) {
-            $val = json_decode($row['value'], true);
-            return (json_last_error() === JSON_ERROR_NONE) ? $val : $row['value'];
+            if (str_starts_with($row['value'], '__JSON__')) {
+                return json_decode(substr($row['value'], 8), true);
+            }
+            return $row['value'];
         } else {
             // Expiró
             $del = $db->prepare("DELETE FROM cache WHERE key = ?");
@@ -69,7 +71,7 @@ function kp_cache_set(string $key, $value, int $ttl = 3600): void {
     $db = kp_cache_db();
     if (!$db) return;
 
-    $valStr = (is_array($value) || is_object($value)) ? json_encode($value) : (string)$value;
+    $valStr = (is_array($value) || is_object($value)) ? ('__JSON__' . json_encode($value)) : (string)$value;
     $expires = time() + $ttl;
 
     $st = $db->prepare("INSERT INTO cache (key, value, expires_at) VALUES (?, ?, ?) 

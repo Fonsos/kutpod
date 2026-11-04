@@ -31,6 +31,10 @@ function kp_get_available_plugins(): array {
         if (is_dir($path) && file_exists("$path/plugin.json")) {
             $meta = json_decode(file_get_contents("$path/plugin.json"), true);
             if ($meta && isset($meta['id'])) {
+                // Omitir remanente obsoleto de brisacms
+                if ($meta['id'] === 'brisacms' || strtolower($folder) === 'brisacms') {
+                    continue;
+                }
                 $meta['folder'] = $folder;
                 // Verificar si tiene archivo de opciones
                 $meta['has_options'] = file_exists("$path/opciones.php") || file_exists("$path/options.php");
@@ -169,6 +173,20 @@ $action = $_GET['action'] ?? '';
 $pluginId = $_GET['plugin'] ?? '';
 $available_plugins = kp_get_available_plugins();
 $active_plugins = json_decode(kp_setting('active_plugins', '[]'), true) ?: [];
+
+// Auto-migrar ID 'brisacms' a 'kutblog' en plugins activos
+if (in_array('brisacms', $active_plugins, true)) {
+    $active_plugins = array_values(array_filter($active_plugins, fn($id) => $id !== 'brisacms'));
+    if (!in_array('kutblog', $active_plugins, true)) {
+        $active_plugins[] = 'kutblog';
+    }
+    kp_update_setting('active_plugins', json_encode($active_plugins));
+}
+
+// Redireccionar ajustes si se solicita el antiguo id 'brisacms'
+if ($pluginId === 'brisacms') {
+    $pluginId = 'kutblog';
+}
 
 // Enrutador de opciones para el plugin
 if ($action === 'settings' && $pluginId !== '') {

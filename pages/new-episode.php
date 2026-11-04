@@ -191,15 +191,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       $persons_json = json_encode($persons_list, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
   }
 
+  $location_name = trim($_POST['location_name'] ?? $_POST['ep_location'] ?? '');
+  $lat = null;
+  $lon = null;
+  if (!empty($_POST['ep_latlon'])) {
+      $parts = explode(',', $_POST['ep_latlon']);
+      if (count($parts) === 2 && is_numeric(trim($parts[0])) && is_numeric(trim($parts[1]))) {
+          $lat = (float)trim($parts[0]);
+          $lon = (float)trim($parts[1]);
+      }
+  }
+
   $was_published = false;
   if ($ep) {
-      $pdo->prepare("UPDATE episodes SET title=?, slug=?, notes_md=?, season=?, number=?, ep_type=?, status=?, transcript_url=?, chapters_url=?, audio_url=?, audio_bytes=?, duration_secs=?, cover=?, publish_at=?, persons_json=?, premium=?, updated_at=datetime('now') WHERE id=?")
-          ->execute([$title, $slug, $notes_md, $season, $number, $ep_type, $status, $transcript_url, $chapters_url, $audio_url, $audio_bytes, $duration_secs, $cover_url, $publish_at, $persons_json, $premium, $ep['id']]);
+      $published_at = $ep['published_at'] ?? null;
+      if ($status === 'published' && empty($published_at)) {
+          $published_at = $publish_at ?: gmdate('Y-m-d H:i:s');
+      }
+      $pdo->prepare("UPDATE episodes SET title=?, slug=?, notes_md=?, season=?, number=?, ep_type=?, status=?, transcript_url=?, chapters_url=?, audio_url=?, audio_bytes=?, duration_secs=?, cover=?, publish_at=?, published_at=?, persons_json=?, premium=?, location_name=?, lat=?, lon=?, updated_at=datetime('now') WHERE id=?")
+          ->execute([$title, $slug, $notes_md, $season, $number, $ep_type, $status, $transcript_url, $chapters_url, $audio_url, $audio_bytes, $duration_secs, $cover_url, $publish_at, $published_at, $persons_json, $premium, $location_name, $lat, $lon, $ep['id']]);
       $episode_id = $ep['id'];
       $was_published = $ep['status'] === 'published';
   } else {
-      $pdo->prepare("INSERT INTO episodes (podcast_id, guid, title, slug, notes_md, season, number, ep_type, status, transcript_url, chapters_url, audio_url, audio_bytes, duration_secs, cover, publish_at, persons_json, premium) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          ->execute([$real_podcast_id, bin2hex(random_bytes(8)), $title, $slug, $notes_md, $season, $number, $ep_type, $status, $transcript_url, $chapters_url, $audio_url, $audio_bytes, $duration_secs, $cover_url, $publish_at, $persons_json, $premium]);
+      $published_at = ($status === 'published') ? ($publish_at ?: gmdate('Y-m-d H:i:s')) : null;
+      $pdo->prepare("INSERT INTO episodes (podcast_id, guid, title, slug, notes_md, season, number, ep_type, status, transcript_url, chapters_url, audio_url, audio_bytes, duration_secs, cover, publish_at, published_at, persons_json, premium, location_name, lat, lon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          ->execute([$real_podcast_id, bin2hex(random_bytes(8)), $title, $slug, $notes_md, $season, $number, $ep_type, $status, $transcript_url, $chapters_url, $audio_url, $audio_bytes, $duration_secs, $cover_url, $publish_at, $published_at, $persons_json, $premium, $location_name, $lat, $lon]);
       $episode_id = (int)$pdo->lastInsertId();
   }
 
@@ -270,10 +286,20 @@ $sections = [
           </div>
         </div>
         <div class="source-panel" data-panel="record" hidden>
-          <div class="recorder">
-            <button type="button" class="btn btn-primary record-btn"><?= icon('mic',16) ?> Iniciar grabación</button>
-            <div class="recorder-meter"><span></span></div>
-            <span class="tabular recorder-time">00:00</span>
+          <div class="recorder" style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 20px;gap:12px;background:var(--surface-2);border-radius:14px;border:1px solid var(--border);text-align:center">
+            <div class="recorder-time tabular" style="font-size:26px;font-family:ui-monospace,monospace;font-weight:600;color:var(--text);letter-spacing:.05em">00:00</div>
+            <div id="rec-status-label" style="font-size:13px;color:var(--text-3)">Pulsa para iniciar la grabación</div>
+            
+            <div style="display:flex;align-items:center;justify-content:center;gap:16px;margin:4px 0">
+              <button type="button" class="rec-btn-circle record-btn" id="record-btn-trigger" title="Iniciar grabación">
+                <svg id="recIconMic" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                <svg id="recIconStop" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+              </button>
+            </div>
+            
+            <div class="recorder-meter" style="width:100%;max-width:340px;height:6px;background:var(--surface-3);border-radius:999px;overflow:hidden">
+              <span style="display:block;width:0%;height:100%;background:var(--accent);transition:width 120ms"></span>
+            </div>
           </div>
         </div>
         <div class="source-panel" data-panel="url" hidden>
@@ -290,7 +316,7 @@ $sections = [
             <div class="help" style="margin-top:6px">Hereda la del show si la dejas vacía.</div>
             <button id="ep_cover-cancel" type="button" class="btn btn-ghost" style="margin-top:8px;font-size:12px;display:none;color:var(--red);align-self:flex-start;"><?= icon('x',12) ?> Cancelar selección</button>
           </div>
-          <div class="col span-8" style="gap:14px">
+          <div class="col span-8" style="display:flex;flex-direction:column;gap:22px">
             <div class="field">
               <label class="label">Permalink</label>
               <div style="display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:0 12px;overflow:hidden;width:100%">
@@ -303,8 +329,10 @@ $sections = [
             </div>
             <div class="field">
               <label class="label">Título <span class="req">*</span></label>
-              <input class="input" name="title" required placeholder="Ej: Entrevista a John Doe" value="<?= e($ep['title'] ?? '') ?>" style="font-size:16px;font-weight:500" oninput="if(!manualSlug) document.getElementById('permalink_input').value = slugify(this.value)">
-            <div class="grid-12">
+              <input class="input" name="title" required placeholder="Ej: Entrevista a John Doe" value="<?= e($ep['title'] ?? '') ?>" style="font-size:16px;font-weight:500" oninput="if(!manualSlug) { const s = slugify(this.value); document.getElementById('permalink_input').value = s; const emb = document.getElementById('embed_slug_input'); if(emb) emb.value = s; }">
+            </div>
+            <div class="field">
+              <div class="grid-12">
                 <div class="field span-2"><div class="label">Temporada</div><input type="number" name="season" class="input" value="<?= e($ep['season'] ?? $default_season) ?>"></div>
                 <div class="field span-2"><div class="label">Episodio</div><input type="number" name="number" class="input" value="<?= e($ep['number'] ?? $default_number) ?>"></div>
                 <div class="field span-3"><div class="label">Tipo</div>
@@ -315,6 +343,7 @@ $sections = [
                   </select>
                 </div>
                 <div class="field span-5"><label class="label">Publicación</label><input class="input" type="datetime-local" id="publish_at_input" name="publish_at" value="<?= e(isset($ep['publish_at']) && $ep['publish_at'] ? date('Y-m-d\TH:i', kp_db_strtotime($ep['publish_at'])) : '') ?>"></div>
+              </div>
             </div>
             <div class="field">
               <label class="label">Personas (Host, Invitados)</label>
@@ -348,6 +377,17 @@ $sections = [
                   </label>
                 <?php endforeach; ?>
               </div>
+            </div>
+            <div class="field">
+              <label class="label">Reproductor embebido</label>
+              <div style="display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:0 12px;overflow:hidden;width:100%">
+                <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>/embed/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
+                <input type="text" id="embed_slug_input" readonly class="input" value="<?= e($ep['slug'] ?? '') ?>" style="border:none;background:transparent;padding-left:4px;width:100%;font-weight:600;box-shadow:none;outline:none;cursor:default" placeholder="titulo-del-episodio">
+                <button type="button" class="btn btn-ghost" id="btn-copy-embed" style="border:none;padding:8px;margin-left:4px;cursor:pointer;display:flex;align-items:center;background:transparent" title="Copiar código iframe del reproductor embebido">
+                  <?= icon('copy', 14) ?>
+                </button>
+              </div>
+              <div class="help" style="margin-top:6px">Copia el código iframe para incrustar el reproductor en páginas web externas o blogs.</div>
             </div>
           </div>
         </div>
@@ -419,8 +459,8 @@ $sections = [
           </div>
         </div>
         <div class="field-row" style="margin-top:14px">
-          <div class="field"><label class="label">Ubicación del episodio</label><input class="input" name="ep_location" placeholder="Caracas, Venezuela · OSM:R3489866"></div>
-          <div class="field"><label class="label">Lat, Lon</label><input class="input tabular" name="ep_latlon" placeholder="10.4806, -66.9036"></div>
+          <div class="field"><label class="label">Ubicación del episodio</label><input class="input" name="ep_location" value="<?= e($ep['location_name'] ?? '') ?>" placeholder="Caracas, Venezuela"></div>
+          <div class="field"><label class="label">Lat, Lon</label><input class="input tabular" name="ep_latlon" value="<?= (!empty($ep['lat']) && !empty($ep['lon'])) ? e($ep['lat'] . ', ' . $ep['lon']) : '' ?>" placeholder="10.4806, -66.9036"></div>
         </div>
       </section>
 
@@ -457,12 +497,15 @@ $sections = [
       <?php endforeach; ?>
       
       <div style="margin-top:32px;display:flex;flex-direction:column;gap:10px">
-        <button class="btn btn-primary" type="submit" name="status" value="published" style="width:100%;justify-content:center;padding:10px"><?= icon('upload',13) ?> <?= ($ep && $ep['status'] === 'published') ? 'Guardar Cambios' : 'Publicar' ?></button>
+        <button class="btn btn-primary" type="submit" name="status" value="published" style="width:100%;justify-content:center;padding:10px"><?= icon('upload',13) ?> <?= ($ep && ($ep['status'] ?? '') === 'published') ? 'Guardar Cambios' : 'Publicar' ?></button>
         <button class="btn" type="submit" name="status" value="scheduled" style="width:100%;justify-content:center"><?= icon('check',13) ?> Programar</button>
         <button class="btn" type="submit" name="status" value="draft" style="width:100%;justify-content:center"><?= icon('file',13) ?> <?= ($ep['status'] ?? '') === 'published' ? 'Despublicar (A borrador)' : 'Guardar Borrador' ?></button>
+        <?php if ($ep && ($ep['status'] ?? '') === 'published'): ?>
+          <a class="btn" href="/@<?= e($p['slug'] ?? $p['id']) ?>/<?= e($ep['slug'] ?? $ep['id']) ?>" target="_blank" rel="noopener" style="width:100%;justify-content:center"><?= icon('externalLink',13) ?> Ir al Episodio</a>
+        <?php endif; ?>
         <a class="btn" href="/admin/podcast?id=<?= e($p['id']) ?>" style="width:100%;justify-content:center">Cancelar</a>
         <?php if ($ep): ?>
-          <button class="btn" style="color:var(--red);border-color:var(--red-10);width:100%;justify-content:center" type="submit" name="action" value="delete" onclick="return confirm('¿Estás seguro de que quieres eliminar este episodio permanentemente?')"><?= icon('x',13) ?> Eliminar</button>
+          <button class="btn btn-danger" style="color:var(--red,#ef4444);border:1px solid var(--red,#ef4444);width:100%;justify-content:center" type="submit" name="action" value="delete" onclick="return confirm('¿Estás seguro de que quieres eliminar este episodio permanentemente?')"><?= icon('x',13) ?> Eliminar</button>
         <?php endif; ?>
       </div>
     </aside>
@@ -484,6 +527,8 @@ function slugify(s) {
 document.getElementById('permalink_input')?.addEventListener('input', function() {
   manualSlug = true;
   this.value = slugify(this.value);
+  const emb = document.getElementById('embed_slug_input');
+  if (emb) emb.value = this.value;
 });
 
 // Comportamiento para imitar Chromium en Firefox: inicializar selector de fecha/hora al hacer clic
@@ -622,9 +667,14 @@ if (recordBtn) {
       cancelAnimationFrame(rafId);
       clearInterval(timerInt);
       meterSpan.style.width = '0%';
-      recordBtn.innerHTML = '<?= icon('mic',16) ?> Iniciar grabación';
-      recordBtn.classList.remove('btn-danger');
-      recordBtn.classList.add('btn-primary');
+      recordBtn.classList.remove('recording');
+      const micIcon = document.getElementById('recIconMic');
+      const stopIcon = document.getElementById('recIconStop');
+      const statusLbl = document.getElementById('rec-status-label');
+      if (micIcon) micIcon.style.display = 'block';
+      if (stopIcon) stopIcon.style.display = 'none';
+      if (statusLbl) statusLbl.textContent = 'Pulsa para iniciar la grabación';
+      recordBtn.setAttribute('title', 'Iniciar grabación');
       return;
     }
 
@@ -714,9 +764,14 @@ if (recordBtn) {
       
       mediaRecorder.start(200);
       
-      recordBtn.innerHTML = '<?= icon('square',14) ?> Detener';
-      recordBtn.classList.remove('btn-primary');
-      recordBtn.classList.add('btn-danger');
+      recordBtn.classList.add('recording');
+      const micIcon = document.getElementById('recIconMic');
+      const stopIcon = document.getElementById('recIconStop');
+      const statusLbl = document.getElementById('rec-status-label');
+      if (micIcon) micIcon.style.display = 'none';
+      if (stopIcon) stopIcon.style.display = 'block';
+      if (statusLbl) statusLbl.textContent = 'Grabando... pulsa para detener';
+      recordBtn.setAttribute('title', 'Detener grabación');
       
       recordStart = Date.now();
       timerInt = setInterval(() => {
@@ -798,6 +853,33 @@ if (copyBtn) {
       setTimeout(() => { copyBtn.innerHTML = originalHTML; }, 2000);
     }).catch(err => {
       alert('Error al copiar la URL: ' + err);
+    });
+  });
+}
+
+const copyEmbedBtn = document.getElementById('btn-copy-embed');
+const embedSlugInput = document.getElementById('embed_slug_input');
+if (embedSlugInput) {
+  embedSlugInput.style.cursor = 'pointer';
+  embedSlugInput.title = 'Haz clic para copiar el código iframe';
+  embedSlugInput.addEventListener('click', () => {
+    copyEmbedBtn?.click();
+  });
+}
+if (copyEmbedBtn) {
+  copyEmbedBtn.addEventListener('click', function(e) {
+    e.preventDefault();
+    const domain = "<?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>";
+    const podcast = "/embed/@<?= e($p['slug'] ?? $p['id']) ?>/";
+    const slug = document.getElementById('embed_slug_input')?.value || document.getElementById('permalink_input')?.value || 'titulo-del-episodio';
+    const fullEmbedUrl = domain + podcast + slug;
+    const iframeCode = '<iframe src="' + fullEmbedUrl + '" width="100%" height="160" frameborder="0" scrolling="no" allow="encrypted-media; fullscreen"></iframe>';
+    navigator.clipboard.writeText(iframeCode).then(() => {
+      const originalHTML = copyEmbedBtn.innerHTML;
+      copyEmbedBtn.innerHTML = '<?= icon('check', 14) ?>';
+      setTimeout(() => { copyEmbedBtn.innerHTML = originalHTML; }, 2000);
+    }).catch(err => {
+      alert('Error al copiar el código iframe: ' + err);
     });
   });
 }

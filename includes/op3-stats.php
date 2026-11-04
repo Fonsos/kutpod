@@ -33,6 +33,15 @@ function kp_op3_podcast_series(int $podcastId, int $days = 30): array {
   );
 }
 
+function kp_op3_all_podcasts_series(int $days = 30): array {
+  if (!kp_op3_tables_exist()) return [];
+  return kp_q(
+    "SELECT podcast_id, date, sum(downloads) downloads FROM op3_stats_daily
+     WHERE date >= date('now', ?) GROUP BY podcast_id, date ORDER BY date",
+    ['-' . $days . ' day']
+  );
+}
+
 function kp_op3_top_apps(int $podcastId, int $days = 30, int $limit = 8): array {
   if (!kp_op3_tables_exist()) return [];
   $rows = kp_q(
@@ -153,6 +162,33 @@ function kp_op3_most_downloaded_episode(int $podcastId): ?array {
     $row['date']     = kp_fmt_relative_date($row['date_iso'] ?? '');
   }
   return $row ?: null;
+}
+
+function kp_op3_most_downloaded_episodes_by_podcast(): array {
+  if (!kp_op3_tables_exist()) return [];
+  $rows = kp_q(
+    "WITH ranked AS (
+      SELECT s.podcast_id, e.id AS db_id, e.slug AS id, e.title AS title, p.slug AS podcast,
+             COALESCE(SUM(s.downloads), 0) AS downloads,
+             COALESCE(e.season, 1) AS s, COALESCE(e.number, 0) AS n, e.status AS status,
+             COALESCE(e.published_at, e.publish_at, e.created_at) AS date_iso,
+             e.cover AS cover, e.duration_secs AS duration_secs, e.guest AS guest,
+             ROW_NUMBER() OVER (PARTITION BY s.podcast_id ORDER BY SUM(s.downloads) DESC) as rn
+      FROM op3_stats_daily s
+      JOIN episodes e ON e.id = s.episode_id
+      JOIN podcasts p ON p.id = e.podcast_id
+      WHERE e.hidden = 0
+      GROUP BY s.podcast_id, s.episode_id
+    )
+    SELECT * FROM ranked WHERE rn = 1"
+  );
+  $by_podcast = [];
+  foreach ($rows as $row) {
+    $row['duration'] = kp_fmt_duration((int)($row['duration_secs'] ?? 0));
+    $row['date']     = kp_fmt_relative_date($row['date_iso'] ?? '');
+    $by_podcast[$row['podcast_id']] = $row;
+  }
+  return $by_podcast;
 }
 
 function kp_op3_top_episodes(int $limit = 5): array {

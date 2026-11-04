@@ -7,18 +7,29 @@ require_once __DIR__ . '/../includes/helpers.php';
 if (php_sapi_name() !== 'cli') { http_response_code(403); exit; }
 $total = ['processed' => 0, 'inserted' => 0, 'duplicates' => 0];
 $by_podcast = [];
+$by_podcast_episode = [];
+
 do {
   $r = kp_op3_process_pending(5000);
-  foreach ($r as $k => $v) {
-    if ($k === 'by_podcast') {
-      foreach ($v as $pid => $cnt) {
-        $by_podcast[$pid] = ($by_podcast[$pid] ?? 0) + $cnt;
-      }
-    } else {
-      $total[$k] += $v;
+  $total['processed']  += (int)($r['processed'] ?? 0);
+  $total['inserted']   += (int)($r['inserted'] ?? 0);
+  $total['duplicates'] += (int)($r['duplicates'] ?? 0);
+
+  if (!empty($r['by_podcast'])) {
+    foreach ($r['by_podcast'] as $pid => $cnt) {
+      $by_podcast[$pid] = ($by_podcast[$pid] ?? 0) + $cnt;
     }
   }
-} while ($r['processed'] >= 5000);
+
+  if (!empty($r['by_podcast_episode'])) {
+    foreach ($r['by_podcast_episode'] as $pid => $eps) {
+      foreach ($eps as $eid => $cnt) {
+        $by_podcast_episode[$pid][$eid] = ($by_podcast_episode[$pid][$eid] ?? 0) + $cnt;
+      }
+    }
+  }
+} while (($r['processed'] ?? 0) >= 5000);
+
 printf("[%s] OP3 worker · hits:%d downloads:%d dups:%d\n",
   date('c'), $total['processed'], $total['inserted'], $total['duplicates']);
 
@@ -26,18 +37,38 @@ printf("[%s] OP3 worker · hits:%d downloads:%d dups:%d\n",
 if ($total['inserted'] > 0) {
   $detail = [];
   foreach ($by_podcast as $pid => $cnt) {
-    if ($cnt > 0) {
-      $p = kp_one("SELECT title FROM podcasts WHERE id = ?", [$pid]);
-      $pname = $p['title'] ?? 'Podcast Desconocido';
+    if ($cnt <= 0) continue;
+    $p = kp_one("SELECT title FROM podcasts WHERE id = ?", [$pid]);
+    $pname = $p['title'] ?? 'Podcast Desconocido';
+
+    $eps = $by_podcast_episode[$pid] ?? [];
+    if (!empty($eps)) {
+      $epParts = [];
+      $idx = 0;
+      $maxShow = 4;
+      foreach ($eps as $eid => $ecnt) {
+        $idx++;
+        if ($idx <= $maxShow) {
+          $e = kp_one("SELECT title FROM episodes WHERE id = ?", [$eid]);
+          $ename = $e['title'] ?? 'Episodio';
+          $epParts[] = "{$ecnt} de '{$ename}'";
+        }
+      }
+      if (count($eps) > $maxShow) {
+        $epParts[] = 'y ' . (count($eps) - $maxShow) . ' más';
+      }
+      $detail[] = implode(', ', $epParts) . " en '{$pname}'";
+    } else {
       $detail[] = "{$cnt} en '{$pname}'";
     }
   }
-  $detailStr = implode(', ', $detail);
+
+  $detailStr = implode('; ', $detail);
   $body = "{$total['inserted']} nuevas descargas registradas ({$total['duplicates']} duplicados filtrados).";
   if ($detailStr) {
     $body .= " Detalles: " . $detailStr . ".";
   }
-  kp_alert('op3', 'Descargas procesadas', $body, '');
+  kp_alert('downloads', 'Descargas procesadas', $body, '');
 }
 
 // Detección de milestones de descargas por episodio
@@ -56,12 +87,12 @@ try {
     foreach ($milestones as $m) {
       if ($dl >= $m && $dl < $m + ($total['inserted'] ?: 1)) {
         // Verificar que no hayamos generado este milestone antes
-        $already = kp_one("SELECT 1 FROM alerts WHERE kind='op3' AND title LIKE ? AND body LIKE ? LIMIT 1",
+        $already = kp_one("SELECT 1 FROM alerts WHERE (kind='op3' OR kind='milestones') AND title LIKE ? AND body LIKE ? LIMIT 1",
           ["%$m descargas%", "%{$ep['title']}%"]);
         if (!$already) {
           $emoji = $m >= 10000 ? '🔥' : ($m >= 1000 ? '🎉' : '📈');
           $epLink = '/admin/podcast/' . urlencode($ep['podcast_slug']) . '?tab=analytics';
-          kp_alert('op3', "$emoji $m descargas alcanzadas",
+          kp_alert('milestones', "$emoji $m descargas alcanzadas",
             "El episodio '{$ep['title']}' de {$ep['podcast_title']} ha superado las " . number_format($m) . " descargas.",
             $epLink);
         }

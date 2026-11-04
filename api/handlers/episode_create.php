@@ -179,18 +179,19 @@ $status = !empty($_POST['publish_at']) && strtotime((string)$_POST['publish_at']
 $publishedAt = !empty($_POST['publish_at'])
              ? gmdate('Y-m-d H:i:s', strtotime((string)$_POST['publish_at']))
              : gmdate('Y-m-d H:i:s');
+$finalPublishedAt = ($status === 'published') ? $publishedAt : null;
 
 $ins = $pdo->prepare("
     INSERT INTO episodes (
         podcast_id, guid, slug, title, notes_md,
         season, number, ep_type, parental,
         audio_url, audio_bytes, duration_secs, cover, transcript_url, chapters_url,
-        status, publish_at, persons_json, created_by, created_at, updated_at
+        status, publish_at, published_at, persons_json, created_by, created_at, updated_at
     ) VALUES (
         :pid, :guid, :slug, :title, :notes,
         :sea, :ep, :type, :parental,
         :audio, :bytes, :dur, :cover, :tr, :ch,
-        :st, :pub, :persons, :created_by, :now, :now
+        :st, :pub, :pub_at, :persons, :created_by, :now, :now
     )
 ");
 $now = gmdate('Y-m-d H:i:s');
@@ -212,6 +213,7 @@ $ins->execute([
     ':ch'       => $chaptersRel ? '/' . $chaptersRel : '',
     ':st'       => $status,
     ':pub'      => $publishedAt,
+    ':pub_at'   => $finalPublishedAt,
     ':persons'  => json_encode([[
         'id'   => (int)$user['id'],
         'name' => $user['name'] ?? 'Autor',

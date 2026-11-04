@@ -22,6 +22,11 @@ function kp_db(): PDO {
   ]);
   $pdo->exec('PRAGMA foreign_keys = ON');
   $pdo->exec('PRAGMA journal_mode = WAL');
+  $pdo->exec('PRAGMA synchronous = NORMAL');
+  $pdo->exec('PRAGMA cache_size = -32000');
+  $pdo->exec('PRAGMA temp_store = MEMORY');
+  $pdo->exec('PRAGMA mmap_size = 268435456');
+  $pdo->exec('PRAGMA busy_timeout = 5000');
 
   // Schema base si falta. Sin seed: la BD queda limpia.
   $has = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")->fetch();
@@ -37,7 +42,7 @@ function kp_db(): PDO {
     if ($stmt) {
       $row = $stmt->fetch();
       if ($row && isset($row['v'])) {
-        $current_version = (int)$row['v'];
+        $current_version = (int)trim((string)$row['v'], "'\"");
       }
     }
   } catch (Throwable $e) {
@@ -95,6 +100,21 @@ function kp_db(): PDO {
         try { $pdo->exec("ALTER TABLE alerts ADD COLUMN action_type TEXT"); } catch (Throwable $e) {}
         try { $pdo->exec("ALTER TABLE alerts ADD COLUMN actor_avatar TEXT"); } catch (Throwable $e) {}
         try { $pdo->exec("ALTER TABLE alerts ADD COLUMN actor_name TEXT"); } catch (Throwable $e) {}
+        
+        // Tabla de Likes de ActivityPub (Fediverso)
+        try {
+          $pdo->exec("CREATE TABLE IF NOT EXISTS ap_likes (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            podcast_id  INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+            episode_id  INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+            actor_url   TEXT NOT NULL,
+            actor_name  TEXT,
+            actor_handle TEXT,
+            actor_avatar TEXT,
+            created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(episode_id, actor_url)
+          )");
+        } catch (Throwable $e) {}
         
         // Migraciones para api_tokens (Kut Editor) - Unificación definitiva
         try {
@@ -233,11 +253,100 @@ function kp_db(): PDO {
       $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '5') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
     } catch (Throwable $e) {}
   }
+
+  if ($current_version < 6) {
+    // Versión 6: Índices de alto rendimiento para analytics OP3, episodios y alertas
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_stats_daily_ep ON op3_stats_daily(episode_id, downloads)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_stats_daily_pod ON op3_stats_daily(podcast_id, date)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_geo_daily_ep ON op3_geo_daily(episode_id, date)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_apps_daily_ep ON op3_apps_daily(episode_id, date)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_episodes_status_pub ON episodes(status, published_at DESC)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_episodes_slug ON episodes(slug)"); } catch (Throwable $e) {}
+    try { $pdo->exec("CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at)"); } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '6') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
+
+  if ($current_version < 7) {
+    // Versión 7: Sincronizar published_at en episodios publicados que tienen published_at NULL o vacío
+    try {
+      $pdo->exec("UPDATE episodes SET published_at = COALESCE(publish_at, created_at, datetime('now')) WHERE status = 'published' AND (published_at IS NULL OR published_at = '')");
+    } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '7') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
+
+  if ($current_version < 8) {
+    // Versión 8: Tabla de likes del Fediverso (ActivityPub)
+    try {
+      $pdo->exec("CREATE TABLE IF NOT EXISTS ap_likes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        podcast_id  INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+        episode_id  INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+        actor_url   TEXT NOT NULL,
+        actor_name  TEXT,
+        actor_handle TEXT,
+        actor_avatar TEXT,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(episode_id, actor_url)
+      )");
+    } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '8') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
+
+  if ($current_version < 9) {
+    // Versión 9: Columna license para Podcasting 2.0
+    try {
+      $pdo->exec("ALTER TABLE podcasts ADD COLUMN license TEXT");
+    } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '9') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
+
+  if ($current_version < 10) {
+    // Versión 10: Columna update_frequency para Podcasting 2.0
+    try {
+      $pdo->exec("ALTER TABLE podcasts ADD COLUMN update_frequency TEXT");
+    } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '10') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
+
+  if ($current_version < 11) {
+    // Versión 11: Normalización de tipos de alertas (downloads, milestones) e índices de consulta
+    try {
+      $pdo->exec("UPDATE alerts SET kind = 'milestones' WHERE kind = 'op3' AND (title LIKE '%alcanzadas%' OR title LIKE '%meta%')");
+      $pdo->exec("UPDATE alerts SET kind = 'downloads' WHERE kind = 'op3'");
+      $pdo->exec("CREATE INDEX IF NOT EXISTS idx_alerts_kind_read ON alerts(kind, read_at)");
+    } catch (Throwable $e) {}
+
+    // Guardar versión de esquema en settings
+    try {
+      $pdo->exec("INSERT INTO settings (k,v) VALUES ('db_schema_version', '11') ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
+    } catch (Throwable $e) {}
+  }
   
   return $pdo;
 }
 }
 
+if (!function_exists('kp_q')) {
 function kp_q(string $sql, array $params = []): array {
   $st = kp_db()->prepare($sql); $st->execute($params);
   return $st->fetchAll();
@@ -249,4 +358,5 @@ function kp_one(string $sql, array $params = []): ?array {
 function kp_exec(string $sql, array $params = []): int {
   $st = kp_db()->prepare($sql); $st->execute($params);
   return (int) kp_db()->lastInsertId();
+}
 }

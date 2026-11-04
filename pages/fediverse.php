@@ -65,7 +65,7 @@ try {
   $total_followers = (int)(kp_one("SELECT count(*) c FROM ap_followers")['c'] ?? 0);
   $total_notes     = (int)(kp_one("SELECT count(*) c FROM ap_outbox WHERE type = 'Create'")['c'] ?? 0);
   $total_boosts    = 0; // Not implemented yet
-  $recent_episodes = kp_q("SELECT e.*, p.title as podcast_title, p.color as podcast_color, p.initial as podcast_initial, p.federate FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE p.federate = 1 ORDER BY e.published_at DESC LIMIT 10") ?: [];
+  $recent_episodes = kp_q("SELECT e.*, e.season as s, e.number as n, p.title as podcast_title, p.color as podcast_color, p.cover as podcast_cover, SUBSTR(p.title, 1, 1) as podcast_initial, p.federate, COALESCE(e.published_at, e.publish_at, e.created_at) as display_date FROM episodes e JOIN podcasts p ON p.id = e.podcast_id WHERE p.federate = 1 AND e.status = 'published' ORDER BY COALESCE(e.published_at, e.publish_at, e.created_at) DESC LIMIT 10") ?: [];
 } catch (Throwable $e) {}
 ?>
 <?php if (isset($_GET['refederated']) && $_GET['refederated'] === '1'): ?>
@@ -154,18 +154,24 @@ try {
         <?php endif; foreach ($recent_episodes as $ep): ?>
           <div style="display:grid;grid-template-columns:44px 1.6fr 1fr 190px;gap:18px;padding:14px 24px;align-items:center;border-bottom:1px solid var(--border);font-size:13.5px">
             <?php
-              $cover = $ep['cover'];
+              $cover = $ep['cover'] ?: ($ep['podcast_cover'] ?? '');
+              $pColor = $ep['podcast_color'] ?: 'var(--accent)';
+              $pInitial = $ep['podcast_initial'] ?: strtoupper(substr($ep['podcast_title'] ?? '?', 0, 1));
               if ($cover) {
                 echo '<img src="'.e($cover).'" style="width:36px;height:36px;border-radius:8px;object-fit:cover" alt="">';
               } else {
-                echo '<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,'.e($ep['podcast_color']).','.e($ep['podcast_color']).'99);color:white;font-weight:700;display:grid;place-items:center">'.e($ep['podcast_initial']).'</div>';
+                echo '<div style="width:36px;height:36px;border-radius:8px;background:linear-gradient(135deg,'.e($pColor).','.e($pColor).'99);color:white;font-weight:700;display:grid;place-items:center">'.e($pInitial).'</div>';
               }
             ?>
-            <div>
-              <div style="font-weight:500"><?= e($ep['title']) ?></div>
-              <div style="font-size:12px;color:var(--text-3);margin-top:2px">S<?= (int)$ep['s'] ?> · E<?= (int)$ep['n'] ?> · <?= e($ep['date'] ?? $ep['published_at']) ?></div>
+            <div style="min-width:0">
+              <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($ep['title']) ?></div>
+              <?php
+                $epDate = $ep['display_date'] ?? ($ep['published_at'] ?: ($ep['publish_at'] ?: ($ep['created_at'] ?? '')));
+                $epTime = !empty($epDate) ? kp_relative_time(is_numeric($epDate) ? (int)$epDate : strtotime($epDate)) : '—';
+              ?>
+              <div style="font-size:12px;color:var(--text-3);margin-top:2px">S<?= (int)($ep['season'] ?? $ep['s'] ?? 0) ?> · E<?= (int)($ep['number'] ?? $ep['n'] ?? 0) ?> · <?= e($epTime) ?></div>
             </div>
-            <div style="font-size:13px;color:var(--text-2)"><?= e($ep['podcast_title']) ?></div>
+            <div style="font-size:13px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><?= e($ep['podcast_title']) ?></div>
             <div style="text-align:right">
               <form method="POST" style="margin:0;padding:0;display:inline-block" onsubmit="return confirm('¿Estás seguro de que quieres volver a enviar este episodio al Fediverso?')">
                 <?= kp_csrf_field() ?>

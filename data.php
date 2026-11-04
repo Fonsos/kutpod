@@ -8,7 +8,9 @@
 require_once __DIR__ . '/includes/db.php';
 
 /** Lista de podcasts visibles + métricas agregadas desde episodes/op3_stats. */
-function kp_podcasts(): array {
+function kp_podcasts(bool $force = false): array {
+  static $cache = null;
+  if ($cache !== null && !$force) return $cache;
   try {
     $rows = kp_q("
       SELECT
@@ -30,14 +32,11 @@ function kp_podcasts(): array {
         (SELECT count(*) FROM episodes e
            WHERE e.podcast_id = p.id AND e.hidden = 0) AS episodes,
         (SELECT COALESCE(SUM(s.downloads),0) FROM op3_stats_daily s
-           JOIN episodes e ON e.id = s.episode_id
-           WHERE e.podcast_id = p.id)           AS downloads,
+           WHERE s.podcast_id = p.id)           AS downloads,
         (SELECT COALESCE(SUM(s.downloads),0) FROM op3_stats_daily s
-           JOIN episodes e ON e.id = s.episode_id
-           WHERE e.podcast_id = p.id AND s.date >= date('now','-7 day')) AS downloads7,
+           WHERE s.podcast_id = p.id AND s.date >= date('now','-7 day')) AS downloads7,
         (SELECT COALESCE(SUM(s.unique_listeners),0) FROM op3_stats_daily s
-           JOIN episodes e ON e.id = s.episode_id
-           WHERE e.podcast_id = p.id) AS unique_listeners,
+           WHERE s.podcast_id = p.id) AS unique_listeners,
         0                                       AS growth,
         p.fixed_notes                           AS fixed_notes,
         p.op3                                   AS op3,
@@ -48,7 +47,7 @@ function kp_podcasts(): array {
       WHERE p.hidden = 0
       ORDER BY p.title ASC
     ");
-    return $rows ?: [];
+    return $cache = ($rows ?: []);
   } catch (Throwable $e) {
     return [];
   }
@@ -67,8 +66,8 @@ function kp_check_scheduled() {
     $pending = $stmt->fetchAll();
     if (!$pending) return;
 
-    $stmt = $pdo->prepare("UPDATE episodes SET status = 'published' WHERE status = 'scheduled' AND COALESCE(published_at, publish_at, created_at) <= ?");
-    $stmt->execute([$now]);
+    $stmt = $pdo->prepare("UPDATE episodes SET status = 'published', published_at = COALESCE(published_at, publish_at, created_at, ?) WHERE status = 'scheduled' AND COALESCE(published_at, publish_at, created_at) <= ?");
+    $stmt->execute([$now, $now]);
 
     $domain = kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? 'localhost');
     $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
@@ -90,7 +89,7 @@ function kp_check_scheduled() {
 }
 
 /** Episodios recientes globales (todos los podcasts), pre-formateados para tablas. */
-function kp_episodes(bool $all = false): array {
+function kp_episodes(bool $all = false, ?string $podcastSlug = null, ?int $limit = null): array {
   kp_check_scheduled();
   try {
     $where = $all ? "WHERE e.hidden = 0" : "WHERE e.hidden = 0
@@ -99,6 +98,14 @@ function kp_episodes(bool $all = false): array {
           OR (e.status = 'scheduled' AND COALESCE(e.published_at, e.publish_at, e.created_at) <= :now_utc)
         )";
     $params_q = $all ? [] : [':now_utc' => gmdate('Y-m-d H:i:s')];
+
+    if ($podcastSlug !== null && $podcastSlug !== '') {
+      $where .= " AND LOWER(p.slug) = :pslug";
+      $params_q[':pslug'] = strtolower($podcastSlug);
+    }
+
+    $limit_sql = ($limit !== null && $limit > 0) ? "LIMIT " . (int)$limit : "";
+
     $rows = kp_q("
       SELECT
         e.id                                    AS db_id,
@@ -115,6 +122,7 @@ function kp_episodes(bool $all = false): array {
         e.cover                                 AS cover,
         e.audio_url                             AS audio_url,
         e.audio_bytes                           AS audio_bytes,
+        e.transcript_url                        AS transcript_url,
         e.chapters_url                          AS chapters_url,
         e.notes_md                              AS notes_md,
         e.persons_json                          AS persons_json,
@@ -124,6 +132,7 @@ function kp_episodes(bool $all = false): array {
       JOIN podcasts p ON p.id = e.podcast_id
       $where
       ORDER BY COALESCE(e.published_at, e.publish_at, e.created_at) DESC
+      $limit_sql
     ", $params_q);
     foreach ($rows as &$r) {
       $r['duration'] = kp_fmt_duration((int)($r['duration_secs'] ?? 0));
@@ -137,7 +146,7 @@ function kp_episodes(bool $all = false): array {
 
 function kp_episodes_of(string $podcastSlug, bool $all = false, bool $reverseSerial = true): array {
   $podcastSlug = strtolower($podcastSlug);
-  $eps = array_values(array_filter(kp_episodes($all), fn($e) => ($e['podcast'] ?? '') === $podcastSlug));
+  $eps = kp_episodes($all, $podcastSlug);
   $p = kp_find_podcast($podcastSlug);
   if ($reverseSerial && $p && ($p['type'] ?? 'episodic') === 'serial') {
     $eps = array_reverse($eps);
@@ -165,7 +174,7 @@ function kp_find_episode(string $id, string $podcastSlug = ''): ?array {
   if ($id === '') return null;
   $id = strtolower($id);
   $podcastSlug = strtolower($podcastSlug);
-  foreach (kp_episodes(true) as $e) {
+  foreach (kp_episodes(true, $podcastSlug ?: null) as $e) {
     if (strtolower($e['id']) === $id && ($podcastSlug === '' || strtolower($e['podcast']) === $podcastSlug)) return $e;
   }
   return null;

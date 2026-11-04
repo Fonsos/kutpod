@@ -325,17 +325,15 @@ $inst = kp_instance();
   <form class="card span-12" method="POST" id="update-token">
     <?= kp_csrf_field() ?>
     <input type="hidden" name="_form" value="update_token">
-    <div class="card-title" style="margin-bottom:14px"><?= icon('refreshCw',16) ?> Actualizaciones (GitHub)</div>
-    <div style="font-size:12.5px;color:var(--text-3);margin-bottom:12px">Configura un token de acceso personal (PAT) de GitHub para que KutPod pueda buscar y descargar actualizaciones desde el repositorio privado. Genera uno en <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" style="color:var(--accent)">GitHub → Settings → Fine-grained tokens</a> con permiso <code>Contents: Read</code> sobre el repositorio.</div>
+    <div class="card-title" style="margin-bottom:14px"><?= icon('refreshCw',16) ?> Actualizaciones (GitHub · Opcional para desarrollo)</div>
+    <div style="font-size:12.5px;color:var(--text-3);margin-bottom:12px">Por defecto, KutPod se actualiza automáticamente a través de los servidores de KutStudio sin requerir tokens. Si eres desarrollador y deseas descargar directamente desde tu repositorio privado de GitHub, puedes configurar un token de acceso personal (PAT) aquí con permiso <code>Contents: Read</code>.</div>
     <div class="field">
-      <div class="label">Personal Access Token (PAT)</div>
+      <div class="label">Personal Access Token (PAT) <span style="font-weight:normal;color:var(--text-3);font-size:11px">(dejar vacío para usar KutStudio Cloud)</span></div>
       <input class="input" name="update_github_token" value="<?= e(kp_setting('update_github_token', '')) ?>" placeholder="github_pat_xxxxxxxxxxxxxxxxx" style="font-family:ui-monospace,monospace">
     </div>
     <div class="row" style="gap:10px;margin-top:14px">
       <button class="btn btn-primary" type="submit">Guardar token</button>
-      <?php if (kp_setting('update_github_token')): ?>
-        <a class="btn" href="/admin/update"><?= icon('search',13) ?> Ir a Actualizaciones</a>
-      <?php endif; ?>
+      <a class="btn" href="/admin/update"><?= icon('search',13) ?> Ir a Actualizaciones</a>
     </div>
   </form>
 

@@ -33,6 +33,7 @@ $flarum_user_id = kp_setting('flarum_user_id', '1');
   </div>
   
   <form method="POST">
+    <?= kp_csrf_field() ?>
     <div class="field-row">
       <div class="field">
         <label class="label">URL del foro Flarum</label>

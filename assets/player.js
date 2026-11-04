@@ -6,6 +6,12 @@
   function $(s, r = document) { return r.querySelector(s); }
   function fmt(sec) { return Math.floor(sec/60) + ':' + String(Math.floor(sec%60)).padStart(2,'0'); }
 
+  const ICONS = {
+    volumeHigh: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>`,
+    volumeLow: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`,
+    volumeMute: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`
+  };
+
   function ensurePlayerDOM() {
     if ($('.pub-player')) return;
     const el = document.createElement('div');
@@ -29,7 +35,7 @@
       </div>
       <div class="pub-player-extras">
         <div class="row" style="gap:6px;align-items:center;margin-right:10px">
-          <button id="kpVolBtn" class="pub-player-chip" style="padding: 5px 8px; min-width: 32px">🔊</button>
+          <button id="kpVolBtn" class="pub-player-chip" style="padding: 5px 8px; min-width: 32px; display: inline-flex; align-items: center; justify-content: center" aria-label="Silenciar" title="Silenciar">${ICONS.volumeHigh}</button>
           <input type="range" id="kpVolume" class="pub-volume" min="0" max="1" step="0.05" value="1">
         </div>
         <select id="kpSpeed" class="pub-player-chip" style="appearance:none;padding-right:10px;text-align:center;outline:none">
@@ -78,7 +84,7 @@
     const updateVolumeUI = () => {
       const isMuted = audio.muted || (isVolumeSettable && audio.volume === 0);
       if (isMuted) {
-        volBtn.textContent = '🔇';
+        volBtn.innerHTML = ICONS.volumeMute;
         volBtn.title = 'Activar sonido';
         volBtn.setAttribute('aria-label', 'Activar sonido');
         if (isVolumeSettable) {
@@ -88,9 +94,9 @@
       } else {
         const vol = isVolumeSettable ? audio.volume : 1;
         if (vol < 0.5) {
-          volBtn.textContent = '🔉';
+          volBtn.innerHTML = ICONS.volumeLow;
         } else {
-          volBtn.textContent = '🔊';
+          volBtn.innerHTML = ICONS.volumeHigh;
         }
         volBtn.title = 'Silenciar';
         volBtn.setAttribute('aria-label', 'Silenciar');
@@ -167,6 +173,89 @@
       $('#kpCur').textContent = fmt(audio.currentTime);
       if (audio.duration) $('#kpDur').textContent = fmt(audio.duration);
     };
+    audio.onended = () => {
+      audio.pause();
+      const player = $('.pub-player');
+      if (player) {
+        player.remove();
+      }
+      audio.src = '';
+    };
+  }
+
+  function isSameTrack(src1, src2) {
+    if (!src1 || !src2) return false;
+    if (src1 === src2) return true;
+    try {
+      const u1 = new URL(src1, window.location.href);
+      const u2 = new URL(src2, window.location.href);
+      return u1.pathname === u2.pathname;
+    } catch (e) {
+      return src1.endsWith(src2) || src2.endsWith(src1);
+    }
+  }
+
+  function playTrack(dataEl, seekTime = null) {
+    ensurePlayerDOM();
+    const targetSrc = dataEl.dataset.src;
+    if (!targetSrc) return;
+
+    const alreadyLoaded = isSameTrack(audio.src, targetSrc);
+
+    if (!alreadyLoaded) {
+      audio.src = targetSrc;
+      $('#kpTitle').textContent = dataEl.dataset.title || '';
+      $('#kpSub').textContent = dataEl.dataset.podcast || '';
+      const c = $('#kpCover');
+      if (dataEl.dataset.cover) {
+        c.style.backgroundImage = `url("${dataEl.dataset.cover}")`;
+        c.style.backgroundSize = 'cover';
+        c.style.backgroundPosition = 'center';
+        c.textContent = '';
+        c.style.display = 'block';
+      } else {
+        c.style.background = `linear-gradient(135deg, ${dataEl.dataset.color || '#ff5f7e'}, ${(dataEl.dataset.color || '#ff5f7e')}99)`;
+        c.textContent = dataEl.dataset.initial || '·';
+        c.style.color = '#fff'; c.style.fontWeight = '700'; c.style.fontSize = '14px';
+        c.style.display = 'grid'; c.style.placeItems = 'center';
+      }
+      const color = dataEl.dataset.color || 'var(--accent)';
+      $('#kpPlay').style.background = color;
+      $('#kpPlay').style.color = '#fff';
+      $('#kpClose').style.background = color;
+      $('#kpClose').style.color = '#fff';
+      $('#kpClose').style.borderColor = color;
+
+      if (seekTime !== null && !isNaN(seekTime) && seekTime >= 0) {
+        const applySeek = () => {
+          try {
+            audio.currentTime = seekTime;
+          } catch(err) {}
+          audio.play().catch(() => {});
+        };
+        if (audio.readyState >= 1) {
+          applySeek();
+        } else {
+          audio.addEventListener('loadedmetadata', applySeek, { once: true });
+        }
+      }
+      audio.play().catch(() => {});
+    } else {
+      if (seekTime !== null && !isNaN(seekTime) && seekTime >= 0) {
+        try {
+          audio.currentTime = seekTime;
+        } catch(err) {}
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        }
+      } else {
+        if (audio.paused) {
+          audio.play().catch(() => {});
+        } else {
+          audio.pause();
+        }
+      }
+    }
   }
 
   // Cualquier <button data-kp-play data-src data-title data-podcast data-color data-initial> dispara el player.
@@ -174,30 +263,7 @@
     const btn = e.target.closest('[data-kp-play]');
     if (!btn) return;
     e.preventDefault();
-    ensurePlayerDOM();
-    audio.src = btn.dataset.src;
-    audio.play();
-    $('#kpTitle').textContent = btn.dataset.title || '';
-    $('#kpSub').textContent = btn.dataset.podcast || '';
-    const c = $('#kpCover');
-    if (btn.dataset.cover) {
-      c.style.backgroundImage = `url("${btn.dataset.cover}")`;
-      c.style.backgroundSize = 'cover';
-      c.style.backgroundPosition = 'center';
-      c.textContent = '';
-      c.style.display = 'block';
-    } else {
-      c.style.background = `linear-gradient(135deg, ${btn.dataset.color || '#ff5f7e'}, ${(btn.dataset.color || '#ff5f7e')}99)`;
-      c.textContent = btn.dataset.initial || '·';
-      c.style.color = '#fff'; c.style.fontWeight = '700'; c.style.fontSize = '14px';
-      c.style.display = 'grid'; c.style.placeItems = 'center';
-    }
-    const color = btn.dataset.color || 'var(--accent)';
-    $('#kpPlay').style.background = color;
-    $('#kpPlay').style.color = '#fff';
-    $('#kpClose').style.background = color;
-    $('#kpClose').style.color = '#fff';
-    $('#kpClose').style.borderColor = color;
+    playTrack(btn);
   });
 
   // Capítulo click -> saltar tiempo
@@ -205,9 +271,17 @@
     const chap = e.target.closest('[data-time]');
     if (!chap) return;
     const time = parseFloat(chap.dataset.time);
-    if (!isNaN(time) && audio.src) {
-        audio.currentTime = time;
-        if (audio.paused) audio.play();
+    if (isNaN(time)) return;
+
+    // Buscar el botón o elemento con datos del episodio
+    const epBtn = (chap.dataset.src ? chap : null)
+               || chap.closest('.pub-ep-detail-grid, .pub-container, .pub-body, body')?.querySelector('[data-kp-play]');
+
+    if (epBtn && epBtn.dataset.src) {
+      playTrack(epBtn, time);
+    } else if (audio.src) {
+      try { audio.currentTime = time; } catch(err) {}
+      if (audio.paused) audio.play().catch(() => {});
     }
   });
 

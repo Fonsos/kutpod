@@ -70,6 +70,28 @@ function kp_get_protocol(): string {
   return 'http';
 }
 
+function kp_base_url(): string {
+  return kp_get_protocol() . '://' . kp_handle_domain();
+}
+
+if (!function_exists('human_bytes')) {
+  function human_bytes($n): string {
+    if ($n === null) return '—';
+    $u = ['B','KB','MB','GB','TB']; $i = 0; $n = (float)$n;
+    while ($n >= 1024 && $i < count($u)-1) { $n /= 1024; $i++; }
+    return number_format($n, $n < 10 && $i > 0 ? 2 : 0) . ' ' . $u[$i];
+  }
+}
+
+if (!function_exists('get_public_platform_svg')) {
+  function get_public_platform_svg(string $type, string $slug): string {
+    $path = __DIR__ . '/../public/assets/platforms/' . $type . '/' . $slug . '.svg';
+    if (!file_exists($path)) $path = __DIR__ . '/../public/assets/platforms/' . $type . '/default.svg';
+    if (file_exists($path)) return file_get_contents($path);
+    return icon('link', 20);
+  }
+}
+
 
 function icon(string $name, int $size = 16): string {
   static $paths = null;
@@ -115,6 +137,8 @@ function icon(string $name, int $size = 16): string {
     'shoppingBag'=>'<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
     'star'=>'<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     'award'=>'<circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>',
+    'externalLink'=>'<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    'mapPin'=>'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
   ];
   $p = $paths[$name] ?? '';
   return "<svg width=\"$size\" height=\"$size\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"round\" stroke-linejoin=\"round\">$p</svg>";
@@ -255,9 +279,20 @@ function kp_notify_websub(string $feed_url): void {
 }
 
 function kp_unaccent(string $s): string {
-  return preg_replace('/[\x{0300}-\x{036f}]/u', '',
-    iconv('UTF-8','UTF-8//IGNORE',
-      Normalizer::normalize($s, Normalizer::FORM_D) ?: $s));
+  if (function_exists('iconv') && class_exists('Normalizer')) {
+    return preg_replace('/[\x{0300}-\x{036f}]/u', '',
+      iconv('UTF-8','UTF-8//IGNORE',
+        Normalizer::normalize($s, Normalizer::FORM_D) ?: $s));
+  }
+  $map = [
+    'á'=>'a','é'=>'e','í'=>'i','ó'=>'o','ú'=>'u','Á'=>'A','É'=>'E','Í'=>'I','Ó'=>'O','Ú'=>'U',
+    'à'=>'a','è'=>'e','ì'=>'i','ò'=>'o','ù'=>'u','À'=>'A','È'=>'E','Ì'=>'I','Ò'=>'O','Ù'=>'U',
+    'ä'=>'a','ë'=>'e','ï'=>'i','ö'=>'o','ü'=>'u','Ä'=>'A','Ë'=>'E','Ï'=>'I','Ö'=>'O','Ü'=>'U',
+    'â'=>'a','ê'=>'e','î'=>'i','ô'=>'o','û'=>'u','Â'=>'A','Ê'=>'E','Î'=>'I','Ô'=>'O','Û'=>'U',
+    'ã'=>'a','õ'=>'o','Ã'=>'A','Õ'=>'O',
+    'ñ'=>'n','Ñ'=>'N','ç'=>'c','Ç'=>'C'
+  ];
+  return strtr($s, $map);
 }
 
 function kp_slugify(string $s): string {
@@ -543,11 +578,19 @@ function kp_plugin_is_active(string $plugin_id): bool {
       if (!is_array($active_plugins)) {
         $active_plugins = [];
       }
+      // Auto-migrar legacy brisacms -> kutblog
+      if (in_array('brisacms', $active_plugins, true)) {
+        $active_plugins = array_values(array_filter($active_plugins, fn($id) => $id !== 'brisacms'));
+        if (!in_array('kutblog', $active_plugins, true)) {
+          $active_plugins[] = 'kutblog';
+        }
+        kp_update_setting('active_plugins', json_encode($active_plugins));
+      }
     } catch (Throwable $e) {
       $active_plugins = [];
     }
   }
-  return in_array($plugin_id, $active_plugins, true);
+  return in_array($plugin_id, $active_plugins, true) || ($plugin_id === 'kutblog' && in_array('brisacms', $active_plugins, true));
 }
 
 // Cargar sistema de ganchos y plugins
@@ -559,6 +602,17 @@ if (file_exists(__DIR__ . '/../storage/kutpod.db')) {
     if (is_array($active)) {
       foreach ($active as $plugin) {
         $file = __DIR__ . "/../plugins/$plugin/$plugin.php";
+        if (!file_exists($file)) {
+          foreach ([$plugin, strtolower($plugin), ucfirst($plugin), 'KutBlog'] as $pDir) {
+            foreach ([$plugin, strtolower($plugin), ucfirst($plugin), 'kutblog'] as $pFile) {
+              $candidate = __DIR__ . "/../plugins/$pDir/$pFile.php";
+              if (file_exists($candidate)) {
+                $file = $candidate;
+                break 2;
+              }
+            }
+          }
+        }
         if (file_exists($file)) {
           include_once $file;
         }

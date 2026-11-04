@@ -15,7 +15,13 @@ require_once __DIR__ . '/geoip2-autoload.php';
 // Esquema (autocreado)
 // ---------------------------------------------------------------------------
 function kp_op3_ensure_schema(): void {
+  static $ensured = false;
+  if ($ensured) return;
+  $ensured = true;
+
   $pdo = kp_db();
+  $has = $pdo->query("SELECT name FROM sqlite_master WHERE type='table' AND name='op3_hits'")->fetch();
+  if ($has) return;
   $pdo->exec("CREATE TABLE IF NOT EXISTS op3_hits (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
     ts           TEXT NOT NULL DEFAULT (datetime('now')),
@@ -122,6 +128,14 @@ function kp_op3_track_and_redirect(string $showSlug, string $episodeSlug): void 
                     WHERE LOWER(p.slug) = LOWER(?) AND e.slug LIKE ? AND e.status = 'published'
                     ORDER BY length(e.slug) DESC LIMIT 1",
                     [$showSlug, $episodeSlug . '%']);
+    }
+
+    // 3) Rescate por IDs numéricos si los parámetros son enteros
+    if (!$ep && is_numeric($showSlug) && is_numeric($episodeSlug)) {
+      $ep = kp_one("SELECT e.*, p.id as p_id, p.slug as p_slug, p.op3 as p_op3
+                    FROM episodes e JOIN podcasts p ON p.id = e.podcast_id
+                    WHERE p.id = ? AND e.id = ? AND e.status = 'published'",
+                    [(int)$showSlug, (int)$episodeSlug]);
     }
   }
 
@@ -241,7 +255,7 @@ function kp_op3_process_pending(int $batch = 5000): array {
 
   // Trae lote de hits sin procesar
   $hits = kp_q("SELECT * FROM op3_hits WHERE processed = 0 ORDER BY id LIMIT ?", [$batch]);
-  if (!$hits) return ['processed' => 0, 'inserted' => 0, 'duplicates' => 0, 'by_podcast' => []];
+  if (!$hits) return ['processed' => 0, 'inserted' => 0, 'duplicates' => 0, 'by_podcast' => [], 'by_podcast_episode' => []];
 
   // Para dedupe necesitamos saber qué download_hash YA está contado en las últimas 24h.
   // Lo cargamos en memoria una vez (clave: download_hash → ['date'=>..., 'is_first_two'=>bool])
@@ -252,7 +266,7 @@ function kp_op3_process_pending(int $batch = 5000): array {
     $existing[$r['download_hash']] = $r;
   }
 
-  $inserted = 0; $dups = 0; $by_podcast = [];
+  $inserted = 0; $dups = 0; $by_podcast = []; $by_podcast_episode = [];
   $insert = $pdo->prepare(
     "INSERT INTO op3_downloads (download_hash,date,ts,episode_id,podcast_id,audience_id,
        hashed_ip,agent_type,agent_name,device_type,device_name,referrer_type,referrer_name,
@@ -329,7 +343,11 @@ function kp_op3_process_pending(int $batch = 5000): array {
     ]);
     
     $podId = (int)$h['podcast_id'];
+    $epId  = (int)($h['episode_id'] ?? 0);
     $by_podcast[$podId] = ($by_podcast[$podId] ?? 0) + 1;
+    if ($epId > 0) {
+      $by_podcast_episode[$podId][$epId] = ($by_podcast_episode[$podId][$epId] ?? 0) + 1;
+    }
     
     $existing[$download] = ['date' => $date, 'tags' => implode(',', $tags)];
     $inserted++;
@@ -340,7 +358,13 @@ function kp_op3_process_pending(int $batch = 5000): array {
   $datesTouched = array_unique(array_map(fn($h) => substr($h['ts'], 0, 10), $hits));
   foreach ($datesTouched as $d) kp_op3_recompute_daily($d);
 
-  return ['processed' => count($hits), 'inserted' => $inserted, 'duplicates' => $dups, 'by_podcast' => $by_podcast];
+  return [
+    'processed' => count($hits),
+    'inserted' => $inserted,
+    'duplicates' => $dups,
+    'by_podcast' => $by_podcast,
+    'by_podcast_episode' => $by_podcast_episode,
+  ];
 }
 
 function kp_op3_recompute_daily(string $date): void {

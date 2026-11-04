@@ -1,0 +1,8 @@
+{
+  "id": "episode_sidebar",
+  "name": "Barra Lateral de Episodios",
+  "version": "1.0.0",
+  "description": "Personaliza los bloques y widgets que se muestran en la barra lateral de los episodios (plataformas de escucha, navegación, detalles técnicos, participantes y apoyo).",
+  "author": "KutPod",
+  "main": "episode_sidebar.php"
+}

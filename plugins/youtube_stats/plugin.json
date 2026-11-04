@@ -1,0 +1,9 @@
+{
+  "id": "youtube_stats",
+  "name": "Estadísticas de YouTube",
+  "version": "1.0.0",
+  "description": "Sincroniza automáticamente visualizaciones, me gusta y comentarios de tus episodios publicados en YouTube (mediante RSS ingestion) y los unifica con las métricas de KutPod.",
+  "author": "KutPod",
+  "main": "youtube_stats.php"
+}
+

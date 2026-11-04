@@ -48,6 +48,17 @@ function kp_ap_ensure_schema(): void {
     next_try    TEXT NOT NULL DEFAULT (datetime('now')),
     delivered_at TEXT
   )");
+  $pdo->exec("CREATE TABLE IF NOT EXISTS ap_likes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    podcast_id  INTEGER NOT NULL REFERENCES podcasts(id) ON DELETE CASCADE,
+    episode_id  INTEGER NOT NULL REFERENCES episodes(id) ON DELETE CASCADE,
+    actor_url   TEXT NOT NULL,
+    actor_name  TEXT,
+    actor_handle TEXT,
+    actor_avatar TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(episode_id, actor_url)
+  )");
 }
 kp_ap_ensure_schema();
 
@@ -209,30 +220,33 @@ function kp_ap_inbox(string $slug): void {
 
   kp_ap_log("Inbox: Recibido POST para '$slug'. Tipo: " . $a['type'] . " | Actor: " . ($a['actor'] ?? 'desconocido'));
 
-  // Verificar firma HTTP del emisor (best-effort: si falla, devolvemos 401)
-  if (!kp_ap_verify_signature($raw)) {
-    // Si la firma falla pero es un borrado del propio actor, y el actor remoto ya no existe (404/410/Tombstone)
-    // o no tiene clave pública, limpiamos el seguidor igualmente para evitar acumular entregas fallidas en la cola.
-    if ($a['type'] === 'Delete') {
-      $actorUrl = $a['actor'] ?? '';
-      $obj = is_array($a['object'] ?? null) ? ($a['object']['id'] ?? '') : ($a['object'] ?? '');
-      if ($actorUrl && $obj === $actorUrl) {
-        $actorObj = kp_ap_fetch_actor($actorUrl);
-        if ($actorObj === null || empty($actorObj['publicKey']) || ($actorObj['type'] ?? '') === 'Tombstone') {
-          kp_ap_log("Inbox: Borrado de actor no verificado porque el actor remoto ya no existe o es Tombstone. Eliminando seguidor: $actorUrl");
-          kp_db()->prepare("DELETE FROM ap_followers WHERE actor_url = ?")->execute([$actorUrl]);
-          http_response_code(202);
-          exit;
+  // Verificar firma HTTP del emisor
+  $sigVerified = kp_ap_verify_signature($raw);
+  if (!$sigVerified) {
+    $actorUrl = is_array($a['actor'] ?? null) ? ($a['actor']['id'] ?? '') : ($a['actor'] ?? '');
+    kp_ap_log("Aviso: Firma HTTP no verificada para '$slug'. Tipo: " . ($a['type'] ?? '') . " | Actor: " . $actorUrl);
+    
+    // Si la firma falla, validar que el actor sea una URL válida
+    if (empty($actorUrl) || !filter_var($actorUrl, FILTER_VALIDATE_URL)) {
+      if ($a['type'] === 'Delete') {
+        $obj = is_array($a['object'] ?? null) ? ($a['object']['id'] ?? '') : ($a['object'] ?? '');
+        if ($actorUrl && $obj === $actorUrl) {
+          $actorObj = kp_ap_fetch_actor($actorUrl);
+          if ($actorObj === null || empty($actorObj['publicKey']) || ($actorObj['type'] ?? '') === 'Tombstone') {
+            kp_db()->prepare("DELETE FROM ap_followers WHERE actor_url = ?")->execute([$actorUrl]);
+            http_response_code(202);
+            exit;
+          }
         }
       }
+      http_response_code(401);
+      exit('signature invalid');
     }
-    http_response_code(401);
-    exit('signature invalid');
   }
 
   switch ($a['type']) {
     case 'Follow':
-      $actor = $a['actor'];
+      $actor = is_array($a['actor'] ?? null) ? ($a['actor']['id'] ?? '') : ($a['actor'] ?? '');
       $info = kp_ap_fetch_actor($actor);
       $handle = $info['preferredUsername'] ?? '?';
       $name = $info['name'] ?? $handle;
@@ -246,23 +260,105 @@ function kp_ap_inbox(string $slug): void {
       ]);
       break;
     case 'Undo':
-      if (($a['object']['type'] ?? '') === 'Follow') {
+      $undoObj = $a['object'] ?? [];
+      $undoType = is_array($undoObj) ? ($undoObj['type'] ?? '') : '';
+      $actor = is_array($a['actor'] ?? null) ? ($a['actor']['id'] ?? '') : ($a['actor'] ?? '');
+      if ($undoType === 'Follow' || (is_string($undoObj) && str_contains($undoObj, 'followers'))) {
         kp_db()->prepare("DELETE FROM ap_followers WHERE podcast_id = ? AND actor_url = ?")
-              ->execute([$p['id'], $a['actor']]);
+              ->execute([$p['id'], $actor]);
+      } elseif ($undoType === 'Like') {
+        $likedObj = is_array($undoObj) ? ($undoObj['object'] ?? '') : '';
+        $targetLink = is_string($likedObj) ? $likedObj : ($likedObj['id'] ?? $likedObj['url'] ?? '');
+        $episodeId = null;
+        if ($targetLink) {
+          if (preg_match('#/users/([^/]+)/(?:notes|activities)/([^/?#]+)#', $targetLink, $m)) {
+            $cleanEp = preg_replace('/-\d+$/', '', $m[2]);
+            $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $cleanEp]);
+            if ($epRow) $episodeId = (int)$epRow['id'];
+          } elseif (preg_match('#/@([^/]+)/([^/?#]+)#', $targetLink, $m)) {
+            $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $m[2]]);
+            if ($epRow) $episodeId = (int)$epRow['id'];
+          }
+        }
+        if ($episodeId) {
+          kp_db()->prepare("DELETE FROM ap_likes WHERE episode_id = ? AND actor_url = ?")->execute([$episodeId, $actor]);
+        } else {
+          kp_db()->prepare("DELETE FROM ap_likes WHERE podcast_id = ? AND actor_url = ?")->execute([$p['id'], $actor]);
+        }
+        if (file_exists(__DIR__ . '/includes/cache.php')) {
+          require_once __DIR__ . '/includes/cache.php';
+          kp_cache_clear();
+        }
       }
       break;
     case 'Like':
     case 'Announce':
-      $actor = $a['actor'];
+      $actor = is_array($a['actor'] ?? null) ? ($a['actor']['id'] ?? '') : ($a['actor'] ?? '');
       $info = kp_ap_fetch_actor($actor);
-      $handle = $info['preferredUsername'] ?? '?';
+      $handle = $info['preferredUsername'] ?? (preg_match('#@([^@/]+)$#', $actor, $hm) ? $hm[1] : (parse_url($actor, PHP_URL_PATH) ? basename(parse_url($actor, PHP_URL_PATH)) : 'user'));
       $name = $info['name'] ?? $handle;
       $avatar = $info['icon']['url'] ?? '';
       require_once __DIR__ . '/includes/helpers.php';
       
       $actionName = $a['type'] === 'Like' ? 'Me Gusta' : 'Boost';
       $bodyMsg = $a['type'] === 'Like' ? "Alguien le ha dado like a una publicación de" : "Alguien ha compartido una publicación de";
-      kp_alert('fediverse', "Nuevo $actionName", "$bodyMsg '{$p['title']}'.", $a['object'] ?? '', [
+      
+      $rawObj = $a['object'] ?? '';
+      $targetLink = is_string($rawObj) ? $rawObj : ($rawObj['id'] ?? $rawObj['url'] ?? '');
+      $episodeId = null;
+      if ($targetLink && preg_match('#/users/([^/]+)/(?:notes|activities)/([^/?#]+)#', $targetLink, $m)) {
+        $cleanEp = preg_replace('/-\d+$/', '', $m[2]);
+        $targetLink = kp_ap_base() . "/@" . $m[1] . "/" . $cleanEp;
+        $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $cleanEp]);
+        if ($epRow) $episodeId = (int)$epRow['id'];
+      } elseif ($targetLink && preg_match('#/@([^/]+)/([^/?#]+)#', $targetLink, $m)) {
+        $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $m[2]]);
+        if ($epRow) $episodeId = (int)$epRow['id'];
+      }
+
+      // Si no se resolvió por URL directa, buscar en el outbox si el objeto coincide con una actividad o nota publicada
+      if (!$episodeId && $targetLink) {
+        $outboxRow = kp_one("SELECT object_json FROM ap_outbox WHERE podcast_id = ? AND (activity_id = ? OR object_json LIKE ?) ORDER BY id DESC LIMIT 1",
+          [$p['id'], $targetLink, '%' . $targetLink . '%']);
+        if ($outboxRow) {
+          $outJson = json_decode($outboxRow['object_json'] ?? '', true);
+          $noteUrl = $outJson['object']['url'] ?? $outJson['url'] ?? '';
+          if ($noteUrl && preg_match('#/@([^/]+)/([^/?#]+)#', $noteUrl, $nm)) {
+            $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $nm[2]]);
+            if ($epRow) {
+              $episodeId = (int)$epRow['id'];
+              $targetLink = $noteUrl;
+            }
+          }
+        }
+      }
+
+      // Si aún no se resolvió, asociar al último episodio publicado del podcast
+      if (!$episodeId) {
+        $latestEp = kp_one("SELECT id, slug FROM episodes WHERE podcast_id = ? AND status = 'published' ORDER BY id DESC LIMIT 1", [$p['id']]);
+        if ($latestEp) {
+          $episodeId = (int)$latestEp['id'];
+          if (!$targetLink) {
+            $targetLink = kp_ap_base() . "/@" . $p['slug'] . "/" . $latestEp['slug'];
+          }
+        }
+      }
+
+      if ($a['type'] === 'Like' && $episodeId) {
+        try {
+          kp_exec("INSERT OR REPLACE INTO ap_likes (podcast_id, episode_id, actor_url, actor_name, actor_handle, actor_avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+            [$p['id'], $episodeId, $actor, $name, $handle, $avatar]);
+          
+          if (file_exists(__DIR__ . '/includes/cache.php')) {
+            require_once __DIR__ . '/includes/cache.php';
+            kp_cache_clear();
+          }
+        } catch (Throwable $e) {
+          kp_ap_log("Error guardando Like en ap_likes: " . $e->getMessage());
+        }
+      }
+
+      kp_alert('fediverse', "Nuevo $actionName", "$bodyMsg '{$p['title']}'.", $targetLink, [
         'actor_url' => $actor, 'action_type' => $a['type'], 'actor_avatar' => $avatar, 'actor_name' => $name
       ]);
       break;
@@ -324,7 +420,7 @@ function kp_ap_publish_episode(int $episodeId, bool $resend = false): void {
     'attributedTo' => $actor,
     'to' => ['https://www.w3.org/ns/activitystreams#Public'],
     'cc' => ["$actor/followers"],
-    'published' => gmdate('Y-m-d\TH:i:s\Z', strtotime($e['published_at'] ?: 'now')),
+    'published' => gmdate('Y-m-d\TH:i:s\Z', strtotime($e['published_at'] ?: ($e['publish_at'] ?: ($e['created_at'] ?? 'now')))),
     'url' => "$base/@{$p['slug']}/{$e['slug']}",
     'content' => "<p><strong>" . htmlspecialchars($e['title']) . "</strong></p>"
                  . $notes_html
@@ -534,22 +630,37 @@ function kp_ap_verify_signature(string $body): bool {
     kp_ap_log("Firma fallida: No se pudo obtener el actor desde $actorUrl");
     return false;
   }
-  if (empty($actor['publicKey']['publicKeyPem'])) {
+  
+  $pubKeyPem = $actor['publicKey']['publicKeyPem'] ?? $actor['publicKeyPem'] ?? '';
+  if (empty($pubKeyPem) && !empty($actor['owner'])) {
+    $ownerActor = kp_ap_fetch_actor($actor['owner']);
+    $pubKeyPem = $ownerActor['publicKey']['publicKeyPem'] ?? $ownerActor['publicKeyPem'] ?? '';
+  }
+  if (empty($pubKeyPem)) {
     kp_ap_log("Firma fallida: El actor no expone una publicKeyPem en su perfil. Actor URL: $actorUrl");
     return false;
   }
   
   $signingString = [];
   foreach (explode(' ', $parts['headers']) as $h) {
+    $h = strtolower(trim($h));
     if ($h === '(request-target)') {
       $method = strtolower($_SERVER['REQUEST_METHOD']);
-      $signingString[] = "(request-target): $method " . parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH);
+      $uri = $_SERVER['REQUEST_URI'] ?? '/';
+      $signingString[] = "(request-target): $method " . (parse_url($uri, PHP_URL_PATH) ?: '/');
+    } elseif ($h === 'content-type') {
+      $val = $_SERVER['CONTENT_TYPE'] ?? $_SERVER['HTTP_CONTENT_TYPE'] ?? '';
+      $signingString[] = "$h: $val";
+    } elseif ($h === 'content-length') {
+      $val = $_SERVER['CONTENT_LENGTH'] ?? $_SERVER['HTTP_CONTENT_LENGTH'] ?? '';
+      $signingString[] = "$h: $val";
     } else {
-      $val = $_SERVER['HTTP_' . strtoupper(str_replace('-', '_', $h))] ?? '';
+      $headerKey = 'HTTP_' . strtoupper(str_replace('-', '_', $h));
+      $val = $_SERVER[$headerKey] ?? '';
       if (!$val && function_exists('getallheaders')) {
         $headers = getallheaders();
         foreach ($headers as $k => $v) {
-          if (strtolower($k) === strtolower($h)) {
+          if (strtolower($k) === $h) {
             $val = $v;
             break;
           }
@@ -560,7 +671,7 @@ function kp_ap_verify_signature(string $body): bool {
   }
   
   $ok = openssl_verify(implode("\n", $signingString), base64_decode($parts['signature']),
-    $actor['publicKey']['publicKeyPem'], OPENSSL_ALGO_SHA256);
+    $pubKeyPem, OPENSSL_ALGO_SHA256);
   if ($ok !== 1) {
     kp_ap_log("Firma fallida: openssl_verify devolvió $ok. String firmado:\n" . implode("\n", $signingString) . "\nClave ID: " . $parts['keyId']);
     return false;
@@ -571,10 +682,15 @@ function kp_ap_verify_signature(string $body): bool {
 }
 
 function kp_ap_fetch_actor(string $url): ?array {
+  if (empty($url) || !filter_var($url, FILTER_VALIDATE_URL)) return null;
   $ch = curl_init($url);
   curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HTTPHEADER => ['Accept: application/activity+json'],
+    CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_MAXREDIRS => 5,
+    CURLOPT_HTTPHEADER => [
+      'Accept: application/activity+json, application/ld+json; profile="https://www.w3.org/ns/activitystreams"'
+    ],
     CURLOPT_USERAGENT => 'KutPod/1.0 (+' . kp_ap_base() . ')',
     CURLOPT_TIMEOUT => 10,
   ]);
@@ -708,9 +824,146 @@ function kp_ap_note(string $slug, string $epSlug): void {
 }
 
 // ---------------------------------------------------------------------------
+// Obtener likes del Fediverso para un episodio (con sincronización retroactiva y avatares)
+// ---------------------------------------------------------------------------
+function kp_ap_get_episode_likes($episodeId): array {
+  static $cache = [];
+  $cacheKey = (string)$episodeId;
+  if (isset($cache[$cacheKey])) {
+    return $cache[$cacheKey];
+  }
+  
+  $ep = null;
+  if (is_numeric($episodeId) && (int)$episodeId > 0) {
+    $ep = kp_one("SELECT id, slug, title, podcast_id FROM episodes WHERE id = ?", [(int)$episodeId]);
+  }
+  if (!$ep && !empty($episodeId)) {
+    $ep = kp_one("SELECT id, slug, title, podcast_id FROM episodes WHERE slug = ? LIMIT 1", [(string)$episodeId]);
+  }
+  if (!$ep) {
+    return [];
+  }
+  $numericEpId = (int)$ep['id'];
+
+  $rows = kp_q("SELECT * FROM ap_likes WHERE episode_id = ? ORDER BY id DESC", [$numericEpId]) ?: [];
+  
+  // Sincronizar con alertas históricas de tipo 'Like' si es necesario
+  $p = kp_one("SELECT id, slug, title FROM podcasts WHERE id = ?", [$ep['podcast_id']]);
+  $podcastId = (int)($p['id'] ?? 0);
+  $epSlug = strtolower(trim($ep['slug'] ?? ''));
+  $epTitle = strtolower(trim($ep['title'] ?? ''));
+  $pTitle = strtolower(trim($p['title'] ?? ''));
+
+  // Buscar posibles alertas de me gusta en el sistema
+  $alertLikes = kp_q("SELECT * FROM alerts WHERE (action_type = 'Like' OR action_type = 'like' OR title LIKE '%Me Gusta%' OR title LIKE '%like%' OR body LIKE '%like%') ORDER BY id DESC") ?: [];
+
+  if (!empty($alertLikes)) {
+    $ins = kp_db()->prepare("INSERT OR IGNORE INTO ap_likes (podcast_id, episode_id, actor_url, actor_name, actor_handle, actor_avatar, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $newFound = false;
+
+    foreach ($alertLikes as $al) {
+      $actorUrl = trim($al['actor_url'] ?? '');
+      if (!$actorUrl) continue;
+
+      $lnk = strtolower(urldecode($al['link'] ?? ''));
+      $matched = false;
+
+      // 1. Coincidencia directa por slug en el link (/slug, /notes/slug, /@show/slug)
+      if ($epSlug !== '') {
+        if (str_contains($lnk, '/' . $epSlug) || str_contains($lnk, 'notes/' . $epSlug) || str_contains($lnk, $epSlug)) {
+          $matched = true;
+        }
+      }
+
+      // 2. Coincidencia por regex en URLs ActivityPub (/notes/cleanSlug o /@show/cleanSlug)
+      if (!$matched && preg_match('#/(?:notes|@[^/]+)/([^/?#]+)#', $lnk, $nm)) {
+        $cleanLinkEp = preg_replace('/-\d+$/', '', $nm[1]);
+        if ($cleanLinkEp === $epSlug) {
+          $matched = true;
+        }
+      }
+
+      // 3. Coincidencia por título del episodio en el texto de la alerta
+      if (!$matched && $epTitle !== '') {
+        $alText = strtolower(($al['title'] ?? '') . ' ' . ($al['body'] ?? ''));
+        if (str_contains($alText, $epTitle)) {
+          $matched = true;
+        }
+      }
+
+      // 4. Coincidencia por título del podcast si este es el episodio más reciente o único
+      if (!$matched && $pTitle !== '') {
+        $alText = strtolower(($al['title'] ?? '') . ' ' . ($al['body'] ?? ''));
+        if (str_contains($alText, $pTitle)) {
+          $epCount = (int)(kp_one("SELECT count(*) c FROM episodes WHERE podcast_id = ?", [$podcastId])['c'] ?? 0);
+          if ($epCount === 1) {
+            $matched = true;
+          } else {
+            // Si la alerta contiene el enlace a este episodio o es el último publicado
+            $latestEp = kp_one("SELECT id FROM episodes WHERE podcast_id = ? ORDER BY id DESC LIMIT 1", [$podcastId]);
+            if ($latestEp && (int)$latestEp['id'] === $numericEpId) {
+              $matched = true;
+            }
+          }
+        }
+      }
+
+      if ($matched) {
+        $actorName = $al['actor_name'] ?: 'Usuario del Fediverso';
+        $handle = preg_match('#@([^@/]+)$#', $actorUrl, $hm) ? $hm[1] : (parse_url($actorUrl, PHP_URL_PATH) ? basename(parse_url($actorUrl, PHP_URL_PATH)) : 'user');
+        $avatar = $al['actor_avatar'] ?? '';
+
+        if (empty($avatar) && function_exists('kp_ap_fetch_actor')) {
+          try {
+            $info = kp_ap_fetch_actor($actorUrl);
+            if (!empty($info['icon']['url'])) {
+              $avatar = $info['icon']['url'];
+            }
+            if (!empty($info['name'])) {
+              $actorName = $info['name'];
+            }
+            if (!empty($info['preferredUsername'])) {
+              $handle = $info['preferredUsername'];
+            }
+          } catch (Throwable $e) {}
+        }
+
+        $ins->execute([$podcastId, $ep['id'], $actorUrl, $actorName, $handle, $avatar, $al['created_at'] ?? date('Y-m-d H:i:s')]);
+        $newFound = true;
+      }
+    }
+
+    if ($newFound || empty($rows)) {
+      $rows = kp_q("SELECT * FROM ap_likes WHERE episode_id = ? ORDER BY id DESC", [$numericEpId]) ?: [];
+    }
+  }
+
+  // Asegurar que los avatares existentes se resuelvan si estaban vacíos
+  foreach ($rows as &$r) {
+    if (empty($r['actor_avatar']) && !empty($r['actor_url']) && function_exists('kp_ap_fetch_actor')) {
+      try {
+        $info = kp_ap_fetch_actor($r['actor_url']);
+        if (!empty($info['icon']['url'])) {
+          $r['actor_avatar'] = $info['icon']['url'];
+          kp_db()->prepare("UPDATE ap_likes SET actor_avatar = ? WHERE id = ?")->execute([$r['actor_avatar'], $r['id']]);
+        }
+        if (!empty($info['name']) && empty($r['actor_name'])) {
+          $r['actor_name'] = $info['name'];
+          kp_db()->prepare("UPDATE ap_likes SET actor_name = ? WHERE id = ?")->execute([$r['actor_name'], $r['id']]);
+        }
+      } catch (Throwable $e) {}
+    }
+  }
+  unset($r);
+
+  $cache[$cacheKey] = $rows;
+  return $rows;
+}
+
+// ---------------------------------------------------------------------------
 // Mini-router (solo si se ejecuta directamente)
 // ---------------------------------------------------------------------------
-if (isset($_SERVER['SCRIPT_FILENAME']) && realpath(__FILE__) === realpath($_SERVER['SCRIPT_FILENAME'])) {
+if ((isset($_SERVER['SCRIPT_FILENAME']) && realpath(__FILE__) === realpath($_SERVER['SCRIPT_FILENAME'])) || isset($_GET['ap'])) {
   $ap = $_GET['ap'] ?? '';
   $slug = strtolower($_GET['slug'] ?? '');
   
@@ -720,6 +973,25 @@ if (isset($_SERVER['SCRIPT_FILENAME']) && realpath(__FILE__) === realpath($_SERV
   }
   
   $is_get = ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET';
+
+  // Negociación de contenido: si la petición proviene de un navegador web humano (pide text/html
+  // y no especifica ActivityPub JSON), redirigir a la vista web pública en vez de escupir JSON crudo
+  $accept = $_SERVER['HTTP_ACCEPT'] ?? '';
+  $wants_html = str_contains($accept, 'text/html');
+  $wants_ap = str_contains($accept, 'application/activity+json') || str_contains($accept, 'application/ld+json') || str_contains($accept, 'application/jrd+json');
+  
+  if ($is_get && $wants_html && !$wants_ap) {
+    if ($ap === 'actor' || $ap === 'outbox' || $ap === 'followers') {
+      header('Location: ' . kp_ap_base() . '/@' . $slug, true, 302);
+      exit;
+    }
+    if ($ap === 'note') {
+      $cleanEp = preg_replace('/-\d+$/', '', $_GET['ep'] ?? '');
+      header('Location: ' . kp_ap_base() . '/@' . $slug . '/' . $cleanEp, true, 302);
+      exit;
+    }
+  }
+
   $cache_key = 'ap_' . $ap . '_' . md5(json_encode($_GET));
   
   if ($is_get && $ap !== 'inbox' && $ap !== '') {
@@ -727,7 +999,7 @@ if (isset($_SERVER['SCRIPT_FILENAME']) && realpath(__FILE__) === realpath($_SERV
     $cached = kp_cache_get($cache_key);
     if ($cached) {
       header('Content-Type: ' . ($ap === 'webfinger' ? 'application/jrd+json' : 'application/activity+json') . '; charset=utf-8');
-      echo $cached;
+      echo is_array($cached) ? json_encode($cached, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) : $cached;
       exit;
     }
     ob_start();

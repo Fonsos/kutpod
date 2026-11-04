@@ -141,11 +141,13 @@ $freq      = kp_setting('backup_frequency', 'daily');
 $retention = kp_setting('backup_retention_days', '90');
 $destination = kp_setting('backup_destination', 'local');
 
-function human_bytes($n) {
-  if ($n === null) return '—';
-  $u = ['B','KB','MB','GB','TB']; $i = 0; $n = (float)$n;
-  while ($n >= 1024 && $i < count($u)-1) { $n /= 1024; $i++; }
-  return number_format($n, $n < 10 && $i > 0 ? 2 : 0) . ' ' . $u[$i];
+if (!function_exists('human_bytes')) {
+  function human_bytes($n) {
+    if ($n === null) return '—';
+    $u = ['B','KB','MB','GB','TB']; $i = 0; $n = (float)$n;
+    while ($n >= 1024 && $i < count($u)-1) { $n /= 1024; $i++; }
+    return number_format($n, $n < 10 && $i > 0 ? 2 : 0) . ' ' . $u[$i];
+  }
 }
 ?>
 <div class="page-head">
@@ -224,7 +226,7 @@ function human_bytes($n) {
     </div>
   <?php else: ?>
     <div class="list">
-      <div style="display:grid;grid-template-columns:1fr 160px 110px 130px 110px 50px;gap:14px;padding:10px 24px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;border-bottom:1px solid var(--border)">
+      <div style="display:grid;grid-template-columns:1fr 150px 100px 110px 95px 125px;gap:14px;padding:12px 32px;font-size:11px;color:var(--text-3);text-transform:uppercase;letter-spacing:.06em;font-weight:600;border-bottom:1px solid var(--border)">
         <div>Podcast</div><div>Fecha</div><div class="tabular">Tamaño</div><div>Contenido</div><div>Tipo</div><div></div>
       </div>
       <?php foreach ($rows as $b):
@@ -234,7 +236,7 @@ function human_bytes($n) {
         $kind_color = $b['kind'] === 'scheduled' ? '#10b981' : ($b['kind'] === 'pre_import' ? '#f59e0b' : 'var(--accent)');
         $status_color = $b['status'] === 'completed' ? '#10b981' : ($b['status'] === 'failed' ? '#ef4444' : '#f59e0b');
       ?>
-        <div class="bk-row" data-label="<?= e(strtolower($label)) ?>" style="display:grid;grid-template-columns:1fr 160px 110px 130px 110px 50px;gap:14px;padding:14px 24px;align-items:center;border-bottom:1px solid var(--border);font-size:13.5px">
+        <div class="bk-row" data-label="<?= e(strtolower($label)) ?>" style="display:grid;grid-template-columns:1fr 150px 100px 110px 95px 125px;gap:14px;padding:14px 32px;align-items:center;border-bottom:1px solid var(--border);font-size:13.5px">
           <div class="row" style="gap:12px;align-items:center;min-width:0">
             <div style="width:36px;height:36px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:grid;place-items:center;font-weight:700"><?= e($initial) ?></div>
             <div style="min-width:0">
@@ -246,21 +248,21 @@ function human_bytes($n) {
           <div class="tabular" style="color:var(--text-2)"><?= human_bytes($b['size_bytes']) ?></div>
           <div style="color:var(--text-3);font-size:12.5px"><?= e($b['items_count'] ? $b['items_count'].' items' : '—') ?></div>
           <div><span class="tag" style="background:<?= $kind_color ?>22;color:<?= $kind_color ?>;font-size:11px"><?= e($kind_label) ?></span></div>
-          <div class="row" style="gap:4px">
+          <div class="row" style="gap:6px;justify-content:flex-end">
             <?php if (!empty($b['path']) && $b['status'] === 'completed'): ?>
-              <a class="kebab" href="<?= e($b['path']) ?>" title="Descargar" download><?= icon('download',14) ?></a>
+              <a class="kebab" href="<?= e($b['path']) ?>" title="Descargar" download style="width:32px;height:32px;border-radius:8px;display:inline-grid;place-items:center"><?= icon('download',16) ?></a>
               <form method="POST" style="margin:0;display:inline" onsubmit="return confirm('¿Restaurar este respaldo? Reemplazará la base de datos actual.')">
                 <?= kp_csrf_field() ?>
                 <input type="hidden" name="_action" value="restore"/>
                 <input type="hidden" name="id" value="<?= $b['id'] ?>"/>
-                <button class="kebab" type="submit" title="Restaurar" style="border:none;background:none;cursor:pointer;padding:4px;display:grid;place-items:center"><?= icon('refreshCw',14) ?></button>
+                <button class="kebab" type="submit" title="Restaurar" style="border:none;background:none;cursor:pointer;width:32px;height:32px;border-radius:8px;display:grid;place-items:center"><?= icon('refreshCw',15) ?></button>
               </form>
             <?php endif; ?>
             <form method="POST" style="margin:0;display:inline" onsubmit="return confirm('¿Eliminar este respaldo permanentemente?')">
               <?= kp_csrf_field() ?>
               <input type="hidden" name="_action" value="delete"/>
               <input type="hidden" name="id" value="<?= $b['id'] ?>"/>
-              <button class="kebab" type="submit" title="Eliminar" style="border:none;background:none;cursor:pointer;padding:4px;display:grid;place-items:center"><?= icon('trash',14) ?></button>
+              <button class="kebab" type="submit" title="Eliminar" style="border:none;background:none;cursor:pointer;width:32px;height:32px;border-radius:8px;display:grid;place-items:center"><?= icon('trash',15) ?></button>
             </form>
           </div>
         </div>

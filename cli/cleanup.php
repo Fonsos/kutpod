@@ -25,7 +25,12 @@ function kp_db_cleanup() {
     // 4. Sesiones Expiradas: Borrar sesiones que ya expiraron hace más de 7 días
     kp_exec("DELETE FROM sessions WHERE expires_at < datetime('now', '-7 days')");
     
-    // 5. VACUUM para recuperar espacio en disco (Opcional, pero recomendado en SQLite después de borrar muchos datos)
+    // 5. Hits OP3 procesados: Borrar hits de audio ya procesados con más de 90 días
+    try {
+        kp_exec("DELETE FROM op3_hits WHERE processed = 1 AND ts < datetime('now', '-90 days')");
+    } catch (Throwable $e) {}
+
+    // 6. VACUUM para recuperar espacio en disco (Opcional, pero recomendado en SQLite después de borrar muchos datos)
     try {
         $pdo->exec("VACUUM");
     } catch (Throwable $e) {}
@@ -33,7 +38,7 @@ function kp_db_cleanup() {
     // Alerta de sistema
     try {
         require_once file_exists(__DIR__ . '/includes/helpers.php') ? __DIR__ . '/includes/helpers.php' : __DIR__ . '/../includes/helpers.php';
-        kp_alert('system', 'Limpieza ejecutada', 'El garbage collector de base de datos se ejecutó correctamente. Se purgaron alertas antiguas, entregas AP completadas (>30d), outbox (>90d), sesiones expiradas y se ejecutó VACUUM.', '');
+        kp_alert('system', 'Limpieza ejecutada', 'El garbage collector de base de datos se ejecutó correctamente. Se purgaron alertas antiguas, entregas AP completadas (>30d), outbox (>90d), hits OP3 antiguos (>90d), sesiones expiradas y se ejecutó VACUUM.', '');
     } catch (Throwable $e) {}
     
     return true;

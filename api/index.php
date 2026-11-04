@@ -29,6 +29,48 @@ if ($route === 'podcasts' && $method === 'GET') {
     exit;
 }
 
+// Match: episodes (público para integraciones como KutBlog)
+if ($route === 'episodes' && $method === 'GET') {
+    require_once __DIR__ . '/../data.php';
+    require_once __DIR__ . '/../includes/helpers.php';
+    $eps = kp_episodes();
+    $q = trim(mb_strtolower($_GET['q'] ?? '', 'UTF-8'));
+    $tag = trim(mb_strtolower($_GET['tag'] ?? '', 'UTF-8'));
+    $items = [];
+    foreach ($eps as $ep) {
+        $p = kp_podcast_or_placeholder($ep['podcast'] ?? '');
+        $titleLower = mb_strtolower($ep['title'] ?? '', 'UTF-8');
+        $notesLower = mb_strtolower($ep['notes_md'] ?? '', 'UTF-8');
+        $tagsLower = mb_strtolower(($ep['custom_tags'] ?? '') . ',' . ($p['custom_tags'] ?? ''), 'UTF-8');
+        $catLower = mb_strtolower(($p['category'] ?? '') . ' ' . ($p['subcategory'] ?? ''), 'UTF-8');
+
+        if ($q !== '' && !str_contains($titleLower, $q) && !str_contains($notesLower, $q) && !str_contains($tagsLower, $q) && !str_contains($catLower, $q)) {
+            continue;
+        }
+        if ($tag !== '' && !str_contains($tagsLower, $tag)) {
+            continue;
+        }
+
+        $items[] = [
+            'id'            => $ep['id'],
+            'db_id'         => $ep['db_id'] ?? null,
+            'slug'          => $ep['id'],
+            'title'         => $ep['title'],
+            'podcast_slug'  => $p['id'] ?? $p['slug'] ?? '',
+            'podcast_title' => $p['title'] ?? '',
+            'category'      => $p['category'] ?? '',
+            'cover'         => $ep['cover'] ?: ($p['cover'] ?? ''),
+            'duration'      => $ep['duration'] ?? '',
+            'duration_secs' => (int)($ep['duration_secs'] ?? 0),
+            'notes_md'      => $ep['notes_md'] ?? '',
+            'custom_tags'   => $ep['custom_tags'] ?? '',
+            'date_iso'      => $ep['date_iso'] ?? '',
+            'audio_url'     => $ep['audio_url'] ?? ($ep['audio'] ?? '')
+        ];
+    }
+    api_json(['items' => $items, 'total' => count($items)]);
+}
+
 // Match: podcasts/{id}/episodes (list y create)
 if (preg_match('~^podcasts/([^/]+)/episodes$~', $route, $m)) {
     $GLOBALS['_podcast_id'] = $m[1];

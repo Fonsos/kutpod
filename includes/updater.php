@@ -12,7 +12,8 @@ require_once __DIR__ . '/../version.php';
 // ---------------------------------------------------------------------------
 // Configuración
 // ---------------------------------------------------------------------------
-define('KUTPOD_UPDATE_REPO', 'ernestoacostame/KutStudio');
+define('KUTPOD_UPDATE_SERVER', 'https://kutstudio.org/updates/');
+define('KUTPOD_UPDATE_REPO', 'ernestoacostame/kutpod');
 define('KUTPOD_UPDATE_SUBDIR', 'kutpod'); // Subcarpeta dentro del ZIP del repo
 
 function kp_update_dir(): string {
@@ -26,18 +27,97 @@ function kp_update_dir(): string {
 // ---------------------------------------------------------------------------
 function kp_update_check(): ?array {
   $token = kp_setting('update_github_token', '');
-  if (!$token) return ['error' => 'No se ha configurado el token de GitHub. Ve a Preferencias → Actualizaciones.'];
+  $localVersion = KUTPOD_VERSION;
 
-  $url = 'https://api.github.com/repos/' . KUTPOD_UPDATE_REPO . '/releases/latest';
+  // 1. Modo Desarrollo / Directo: Si el usuario configuró un token de GitHub explícito
+  if (!empty($token)) {
+    $url = 'https://api.github.com/repos/' . KUTPOD_UPDATE_REPO . '/releases/latest';
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_HTTPHEADER => [
+        "Authorization: Bearer $token",
+        'Accept: application/vnd.github+json',
+        'X-GitHub-Api-Version: 2022-11-28',
+      ],
+      CURLOPT_USERAGENT => 'KutPod/' . KUTPOD_VERSION,
+      CURLOPT_TIMEOUT => 15,
+    ]);
+    $resp = curl_exec($ch);
+    $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err = curl_error($ch);
+    curl_close($ch);
+
+    if ($http === 401 || $http === 403) {
+      return ['error' => 'Token de GitHub de desarrollo inválido o sin permisos. HTTP ' . $http];
+    }
+    if ($http !== 200 || !$resp) {
+      return ['error' => "Error al consultar GitHub directamente (HTTP $http). $err"];
+    }
+
+    $release = json_decode($resp, true);
+    if (!$release || empty($release['tag_name'])) {
+      return ['error' => 'No se encontraron releases en el repositorio de GitHub.'];
+    }
+
+    $remoteVersion = ltrim($release['tag_name'], 'vV');
+
+    if (version_compare($remoteVersion, $localVersion, '<=')) {
+      kp_update_save_cache(['up_to_date' => true, 'version' => $localVersion]);
+      return ['up_to_date' => true, 'version' => $localVersion];
+    }
+
+    $zipUrl = '';
+    $zipIsAsset = false;
+    if (!empty($release['assets'])) {
+      foreach ($release['assets'] as $asset) {
+        if (preg_match('/^kutpod.*\.zip$/i', $asset['name'])) {
+          $zipUrl = $asset['url'];
+          $zipIsAsset = true;
+          break;
+        }
+      }
+      if (!$zipUrl) {
+        foreach ($release['assets'] as $asset) {
+          if (preg_match('/\.zip$/i', $asset['name'])) {
+            $zipUrl = $asset['url'];
+            $zipIsAsset = true;
+            break;
+          }
+        }
+      }
+    }
+    if (!$zipUrl) {
+      $zipUrl = $release['zipball_url'] ?? '';
+    }
+
+    $result = [
+      'available' => true,
+      'channel' => 'github_direct',
+      'current_version' => $localVersion,
+      'new_version' => $remoteVersion,
+      'tag' => $release['tag_name'],
+      'name' => $release['name'] ?? $release['tag_name'],
+      'changelog' => $release['body'] ?? '',
+      'published_at' => $release['published_at'] ?? '',
+      'zip_url' => $zipUrl,
+      'zip_is_asset' => $zipIsAsset,
+      'html_url' => $release['html_url'] ?? '',
+    ];
+
+    kp_update_save_cache($result);
+    return $result;
+  }
+
+  // 2. Modo Estándar Transparente: Servidor Central de Actualizaciones KutStudio
+  $server = rtrim(defined('KUTPOD_UPDATE_SERVER') ? KUTPOD_UPDATE_SERVER : 'https://kutstudio.com/updates/', '/');
+  $url = $server . '/?app=kutpod&action=check&version=' . rawurlencode($localVersion) . '&nocache=1';
+
   $ch = curl_init($url);
   curl_setopt_array($ch, [
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_HTTPHEADER => [
-      "Authorization: Bearer $token",
-      'Accept: application/vnd.github+json',
-      'X-GitHub-Api-Version: 2022-11-28',
-    ],
     CURLOPT_USERAGENT => 'KutPod/' . KUTPOD_VERSION,
+    CURLOPT_FOLLOWLOCATION => true,
     CURLOPT_TIMEOUT => 15,
   ]);
   $resp = curl_exec($ch);
@@ -45,74 +125,26 @@ function kp_update_check(): ?array {
   $err = curl_error($ch);
   curl_close($ch);
 
-  if ($http === 401 || $http === 403) {
-    return ['error' => 'Token de GitHub inválido o sin permisos. HTTP ' . $http];
-  }
   if ($http !== 200 || !$resp) {
-    return ['error' => "Error al consultar GitHub (HTTP $http). $err"];
+    return ['error' => 'No se pudo conectar con el servidor de actualizaciones KutStudio. ' . ($err ?: "HTTP $http")];
   }
 
-  $release = json_decode($resp, true);
-  if (!$release || empty($release['tag_name'])) {
-    return ['error' => 'No se encontraron releases en el repositorio.'];
+  $data = json_decode($resp, true);
+  if (!$data) {
+    return ['error' => 'Respuesta no válida del servidor de actualizaciones.'];
+  }
+  if (!empty($data['error'])) {
+    return ['error' => $data['error']];
   }
 
-  $remoteVersion = ltrim($release['tag_name'], 'vV');
-  $localVersion = KUTPOD_VERSION;
-
-  if (version_compare($remoteVersion, $localVersion, '<=')) {
-    // Guardar en cache que estamos al día
+  if (!empty($data['up_to_date'])) {
     kp_update_save_cache(['up_to_date' => true, 'version' => $localVersion]);
     return ['up_to_date' => true, 'version' => $localVersion];
   }
 
-  // Buscar un asset ZIP personalizado de KutPod (kutpod-*.zip)
-  // Este tiene prioridad sobre el zipball_url (que incluiría todo el monorepo)
-  $zipUrl = '';
-  $zipIsAsset = false;
-  if (!empty($release['assets'])) {
-    foreach ($release['assets'] as $asset) {
-      // Priorizar: kutpod-vX.Y.Z.zip o kutpod.zip
-      if (preg_match('/^kutpod.*\.zip$/i', $asset['name'])) {
-        // Para repos privados, usar la API URL con Accept: octet-stream
-        $zipUrl = $asset['url'];
-        $zipIsAsset = true;
-        break;
-      }
-    }
-    // Fallback: cualquier .zip adjunto
-    if (!$zipUrl) {
-      foreach ($release['assets'] as $asset) {
-        if (preg_match('/\.zip$/i', $asset['name'])) {
-          $zipUrl = $asset['url'];
-          $zipIsAsset = true;
-          break;
-        }
-      }
-    }
-  }
-  // Último recurso: zipball del repo completo (monorepo)
-  if (!$zipUrl) {
-    $zipUrl = $release['zipball_url'] ?? '';
-  }
-
-  $result = [
-    'available' => true,
-    'current_version' => $localVersion,
-    'new_version' => $remoteVersion,
-    'tag' => $release['tag_name'],
-    'name' => $release['name'] ?? $release['tag_name'],
-    'changelog' => $release['body'] ?? '',
-    'published_at' => $release['published_at'] ?? '',
-    'zip_url' => $zipUrl,
-    'zip_is_asset' => $zipIsAsset,
-    'html_url' => $release['html_url'] ?? '',
-  ];
-
-  // Guardar en cache para el dashboard
-  kp_update_save_cache($result);
-
-  return $result;
+  $data['channel'] = 'kutstudio';
+  kp_update_save_cache($data);
+  return $data;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,8 +173,6 @@ function kp_update_cache_stale(): bool {
 // Descargar el ZIP de la release
 // ---------------------------------------------------------------------------
 function kp_update_download(string $zipUrl): array {
-  $token = kp_setting('update_github_token', '');
-  if (!$token) return ['error' => 'Token no configurado.'];
   if (!$zipUrl) return ['error' => 'URL del ZIP no disponible.'];
 
   $destDir = kp_update_dir();
@@ -151,18 +181,32 @@ function kp_update_download(string $zipUrl): array {
   $fp = fopen($destPath, 'w');
   if (!$fp) return ['error' => 'No se puede escribir en ' . $destDir];
 
+  $headers = [
+    'User-Agent: KutPod/' . KUTPOD_VERSION,
+  ];
+
+  // Si la descarga es directamente desde api.github.com, requerir y adjuntar el token
+  $isGitHubApi = (strpos($zipUrl, 'api.github.com') !== false);
+  if ($isGitHubApi) {
+    $token = kp_setting('update_github_token', '');
+    if (!$token) {
+      fclose($fp);
+      @unlink($destPath);
+      return ['error' => 'Se requiere token de GitHub para descargar directamente desde la API privada de GitHub.'];
+    }
+    $headers[] = "Authorization: Bearer $token";
+    $headers[] = 'Accept: application/octet-stream';
+    $headers[] = 'X-GitHub-Api-Version: 2022-11-28';
+  }
+
   $ch = curl_init($zipUrl);
   curl_setopt_array($ch, [
     CURLOPT_FILE => $fp,
-    CURLOPT_HTTPHEADER => [
-      "Authorization: Bearer $token",
-      'Accept: application/octet-stream',
-      'X-GitHub-Api-Version: 2022-11-28',
-    ],
+    CURLOPT_HTTPHEADER => $headers,
     CURLOPT_USERAGENT => 'KutPod/' . KUTPOD_VERSION,
     CURLOPT_FOLLOWLOCATION => true,
     CURLOPT_MAXREDIRS => 5,
-    CURLOPT_TIMEOUT => 120,
+    CURLOPT_TIMEOUT => 300,
   ]);
   curl_exec($ch);
   $http = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -297,6 +341,52 @@ function kp_update_apply(string $zipPath, string $newVersion): array {
   kp_alert('system', 'Actualización aplicada', "KutPod actualizado de v" . KUTPOD_VERSION . " a v$newVersion.", '/admin/update');
 
   return ['success' => true, 'from' => KUTPOD_VERSION, 'to' => $newVersion, 'files_updated' => $copied];
+}
+
+/**
+ * Aplica una actualización desde un archivo ZIP local (manual o descargado)
+ * detectando automáticamente la nueva versión desde version.php dentro del ZIP.
+ */
+function kp_update_apply_zip(string $zipPath, ?string $manualVersion = null): array {
+  if (!file_exists($zipPath)) return ['error' => 'El fichero ZIP no existe.'];
+  if (!class_exists('ZipArchive')) return ['error' => 'La extensión ZipArchive de PHP no está instalada.'];
+
+  $zip = new ZipArchive();
+  $res = $zip->open($zipPath);
+  if ($res !== true) {
+    @unlink($zipPath);
+    return ['error' => 'No se pudo abrir el archivo ZIP (código: ' . $res . '). Verifica que sea un archivo ZIP válido.'];
+  }
+
+  // Buscar version.php dentro del ZIP para auto-detectar la versión
+  $detectedVersion = '';
+  for ($i = 0; $i < $zip->numFiles; $i++) {
+    $stat = $zip->statIndex($i);
+    $name = $stat['name'] ?? '';
+    if (preg_match('#(?:^|/)version\.php$#i', $name)) {
+      $content = $zip->getFromIndex($i);
+      if ($content && preg_match("/KUTPOD_VERSION',\s*'([^']+)'/", $content, $m)) {
+        $detectedVersion = trim($m[1]);
+        break;
+      }
+    }
+  }
+  $zip->close();
+
+  $versionToApply = $manualVersion ?: $detectedVersion;
+  if (!$versionToApply) {
+    // Si no se encontró version.php, intentar extraer del nombre de archivo (ej: kutpod-v1.2.16.zip)
+    if (preg_match('/(?:v|kutpod-v?)([0-9]+\.[0-9]+\.[0-9]+)/i', basename($zipPath), $vm)) {
+      $versionToApply = $vm[1];
+    }
+  }
+
+  if (!$versionToApply) {
+    @unlink($zipPath);
+    return ['error' => 'No se pudo determinar la versión de KutPod dentro del ZIP. Asegúrate de subir un release oficial de KutPod que contenga version.php.'];
+  }
+
+  return kp_update_apply($zipPath, $versionToApply);
 }
 
 // ---------------------------------------------------------------------------
@@ -530,4 +620,114 @@ function kp_update_history(): array {
   } catch (Throwable $e) {
     return [];
   }
+}
+
+/** Obtener estadísticas de almacenamiento de actualizaciones */
+function kp_update_get_storage_info(): array {
+  $dir = kp_update_dir();
+  $info = [
+    'downloaded_count' => 0,
+    'downloaded_bytes' => 0,
+    'rollbacks_count'  => 0,
+    'rollbacks_bytes'  => 0,
+    'total_bytes'      => 0,
+    'files'            => []
+  ];
+
+  if (!is_dir($dir)) return $info;
+
+  $items = @scandir($dir) ?: [];
+  foreach ($items as $item) {
+    if ($item === '.' || $item === '..') continue;
+    $path = $dir . '/' . $item;
+
+    if (is_file($path)) {
+      $size = filesize($path) ?: 0;
+      if (preg_match('/\.zip$/i', $item)) {
+        $info['downloaded_count']++;
+        $info['downloaded_bytes'] += $size;
+        $info['files'][] = ['name' => $item, 'type' => 'zip', 'size' => $size];
+      } elseif (preg_match('/^rollback-.*\.tar\.gz$/i', $item)) {
+        $info['rollbacks_count']++;
+        $info['rollbacks_bytes'] += $size;
+        $info['files'][] = ['name' => $item, 'type' => 'rollback', 'size' => $size];
+      }
+    } elseif (is_dir($path) && str_starts_with($item, 'tmp-')) {
+      $tmpSize = kp_dir_size($path);
+      $info['downloaded_count']++;
+      $info['downloaded_bytes'] += $tmpSize;
+      $info['files'][] = ['name' => $item, 'type' => 'tmp', 'size' => $tmpSize];
+    }
+  }
+
+  $info['total_bytes'] = $info['downloaded_bytes'] + $info['rollbacks_bytes'];
+  return $info;
+}
+
+/** Calcular tamaño recursivo de un directorio */
+function kp_dir_size(string $dir): int {
+  $size = 0;
+  if (!is_dir($dir)) return 0;
+  $items = @scandir($dir) ?: [];
+  foreach ($items as $item) {
+    if ($item === '.' || $item === '..') continue;
+    $path = $dir . '/' . $item;
+    if (is_dir($path)) {
+      $size += kp_dir_size($path);
+    } else {
+      $size += filesize($path) ?: 0;
+    }
+  }
+  return $size;
+}
+
+/** Limpiar actualizaciones descargadas (archivos zip y temporales) y opcionalmente rollbacks */
+function kp_update_clean_downloads(bool $includeRollbacks = false): array {
+  $dir = kp_update_dir();
+  $deletedCount = 0;
+  $freedBytes = 0;
+
+  if (!is_dir($dir)) {
+    return ['success' => true, 'deleted_count' => 0, 'freed_bytes' => 0, 'freed_human' => human_bytes(0)];
+  }
+
+  $items = @scandir($dir) ?: [];
+  foreach ($items as $item) {
+    if ($item === '.' || $item === '..') continue;
+    $path = $dir . '/' . $item;
+
+    if (is_file($path)) {
+      $isZip = (bool)preg_match('/\.zip$/i', $item);
+      $isRollback = (bool)preg_match('/^rollback-.*\.tar\.gz$/i', $item);
+
+      if ($isZip || ($includeRollbacks && $isRollback)) {
+        $sz = filesize($path) ?: 0;
+        if (@unlink($path)) {
+          $deletedCount++;
+          $freedBytes += $sz;
+        }
+      }
+    } elseif (is_dir($path) && str_starts_with($item, 'tmp-')) {
+      $sz = kp_dir_size($path);
+      kp_update_cleanup_tmp($path);
+      $deletedCount++;
+      $freedBytes += $sz;
+    }
+  }
+
+  if ($includeRollbacks) {
+    $defaultRb = kp_setting('update_rollback_path', '');
+    if ($defaultRb && !file_exists($defaultRb)) {
+      $set = kp_db()->prepare("INSERT INTO settings (k,v) VALUES (?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v");
+      $set->execute(['update_rollback_path', '']);
+      $set->execute(['update_rollback_version', '']);
+    }
+  }
+
+  return [
+    'success' => true,
+    'deleted_count' => $deletedCount,
+    'freed_bytes' => $freedBytes,
+    'freed_human' => human_bytes($freedBytes)
+  ];
 }

@@ -77,14 +77,16 @@ if ($audioBytes > 0) {
 
 <div class="page-head">
   <div class="row" style="gap:16px;align-items:flex-start">
-    <?php if ($p['cover']): ?>
-      <img class="cover" src="<?= e($p['cover']) ?>" style="width:64px;height:64px;border-radius:14px;object-fit:cover" alt="">
-    <?php else: ?>
-      <div class="cover" style="width:64px;height:64px;border-radius:14px;background:linear-gradient(135deg,<?= e($p['color']) ?>,<?= e($p['color']) ?>99);color:white;font-weight:800;font-size:22px"><?= e($p['initial']) ?></div>
-    <?php endif; ?>
+    <a class="cover-link" href="/@<?= e($p['id']) ?>" target="_blank" title="Ver <?= e($p['title']) ?> en la web">
+      <?php if ($p['cover']): ?>
+        <img class="cover" src="<?= e($p['cover']) ?>" style="width:64px;height:64px;border-radius:14px;object-fit:cover" alt="<?= e($p['title']) ?>">
+      <?php else: ?>
+        <div class="cover" style="width:64px;height:64px;border-radius:14px;background:linear-gradient(135deg,<?= e($p['color']) ?>,<?= e($p['color']) ?>99);color:white;font-weight:800;font-size:22px"><?= e($p['initial']) ?></div>
+      <?php endif; ?>
+    </a>
     <div>
       <h1 class="page-title">
-        <?= e($p['title']) ?>
+        <a href="/@<?= e($p['id']) ?>" target="_blank" title="Ver <?= e($p['title']) ?> en la web"><?= e($p['title']) ?></a>
         <?php if (($p['parental'] ?? 'clean') === 'explicit'): ?>
           <span style="display:inline-block;background:var(--border);color:var(--text-2);border-radius:4px;font-size:12px;padding:2px 6px;margin-left:6px;vertical-align:middle;line-height:1;font-weight:800">E</span>
         <?php endif; ?>

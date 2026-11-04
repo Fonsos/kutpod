@@ -930,8 +930,10 @@ function kp_premium_plugin_public_show_episode_play_button(string $html, array $
         return str_replace('audio.mp3', 'audio.mp3?token=' . urlencode($tokenStr), $html);
     }
 
-    return '<button class="pub-ep-play-circle" style="background:#4b5563; cursor:not-allowed; display:grid; place-items:center" title="Contenido Premium" onclick="alert(\'Este episodio es exclusivo para suscriptores Premium. Por favor, suscríbete para acceder al contenido.\')">
-        ' . icon('lock', 12) . '
+    $label = 'Premium' . (!empty($ep['duration']) ? ' · ' . e($ep['duration']) : '');
+    return '<button class="pub-ep-play-pill" style="background:#4b5563; cursor:not-allowed; color:#fff" title="Contenido Premium" onclick="alert(\'Este episodio es exclusivo para suscriptores Premium. Por favor, suscríbete para acceder al contenido.\')">
+        ' . icon('lock', 13) . '
+        <span>' . $label . '</span>
     </button>';
 }
 

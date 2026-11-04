@@ -16,6 +16,9 @@ $hasRollback = $rollbackVersion && $rollbackPath && file_exists($rollbackPath);
 $rollbacks = kp_update_get_available_rollbacks();
 $hasAnyRollback = !empty($rollbacks);
 
+// Información de almacenamiento de actualizaciones
+$storageInfo = kp_update_get_storage_info();
+
 // Historial de actualizaciones
 $history = [];
 try {
@@ -32,10 +35,10 @@ try {
 <!-- Estado actual -->
 <div class="stat-grid">
   <?= stat_card('Versión instalada', 'v' . KUTPOD_VERSION, 'layers', ['sub' => 'Compilación actual']) ?>
-  <?= stat_card('Token GitHub', $hasToken ? 'Configurado' : 'No configurado', 'shield',
+  <?= stat_card('Canal', $hasToken ? 'GitHub Directo' : 'KutStudio Cloud', 'shield',
        $hasToken
-         ? ['sub' => 'Listo para buscar']
-         : ['sub' => 'No configurado aún', 'foot' => '<div style="margin-top:8px"><a href="/admin/preferences#update-token" style="color:var(--accent);font-size:12px">Configurar en Preferencias →</a></div>']) ?>
+         ? ['sub' => 'Token de desarrollo activo', 'foot' => '<div style="margin-top:8px"><a href="/admin/preferences#update-token" style="color:var(--accent);font-size:12px">Preferencias →</a></div>']
+         : ['sub' => 'Actualización transparente', 'foot' => '<div style="margin-top:8px;font-size:11px;color:var(--text-3)">Automático</div>']) ?>
   <?= stat_card('Rollback', $hasRollback ? 'v' . $rollbackVersion : 'No disponible', 'refreshCw',
        ['sub' => $hasRollback ? 'Versión anterior guardada' : 'Se crea antes de cada update']) ?>
   <?= stat_card('Actualizaciones', (string)count($history), 'check', ['sub' => 'aplicadas en total']) ?>
@@ -47,10 +50,10 @@ try {
     <div>
       <div class="card-title">Buscar actualización</div>
       <div style="font-size:12.5px;color:var(--text-3);margin-top:4px">
-        Consulta el repositorio de GitHub para verificar si hay una nueva versión disponible.
+        Consulta el repositorio oficial para verificar si hay una nueva versión disponible.
       </div>
     </div>
-    <button class="btn btn-primary" id="btn-check" type="button" onclick="kpUpdateCheck()" <?= $hasToken ? '' : 'disabled title="Configura el token primero"' ?>>
+    <button class="btn btn-primary" id="btn-check" type="button" onclick="kpUpdateCheck()">
       <?= icon('search',13) ?> Buscar actualizaciones
     </button>
   </div>
@@ -102,6 +105,32 @@ try {
   </div>
 </div>
 
+<!-- Actualización manual vía ZIP -->
+<div class="card card-lg" style="padding:28px;margin-top:24px" id="manual-upload-card">
+  <div class="card-head" style="margin-bottom:18px">
+    <div>
+      <div class="card-title"><?= icon('upload',16) ?> Subir paquete de actualización (.zip)</div>
+      <div style="font-size:12.5px;color:var(--text-3);margin-top:4px">
+        Si tu servidor no puede conectar a GitHub o prefieres actualizar manualmente, sube el archivo <code>.zip</code> descargado directamente desde los <a href="https://github.com/ernestoacostame/kutpod/releases" target="_blank" rel="noopener" style="color:var(--accent)">Releases de GitHub</a>.
+      </div>
+    </div>
+  </div>
+
+  <form id="form-manual-upload" onsubmit="kpManualUpdateUpload(event)">
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">
+      <input type="file" id="manual-zip-input" accept=".zip,application/zip" class="input" style="flex:1;min-width:240px;padding:8px 12px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px" required>
+      <button class="btn btn-primary" id="btn-manual-upload" type="submit">
+        <?= icon('upload',13) ?> Subir e instalar actualización
+      </button>
+    </div>
+    <div style="font-size:11.5px;color:var(--text-3);margin-top:8px">
+      ℹ Se creará una copia de seguridad automática antes de aplicar los ficheros del archivo ZIP.
+    </div>
+  </form>
+
+  <div id="manual-upload-status" style="display:none;margin-top:16px"></div>
+</div>
+
 <!-- Rollback -->
 <?php if ($hasAnyRollback): ?>
 <div class="card card-lg" style="padding:28px;margin-top:24px">
@@ -132,10 +161,51 @@ try {
 </div>
 <?php endif; ?>
 
+<!-- Almacenamiento y limpieza de actualizaciones -->
+<div class="card card-lg" style="padding:24px;margin-top:24px" id="card-clean-updates">
+  <div class="card-head" style="align-items:flex-start;flex-wrap:wrap;gap:16px">
+    <div style="flex:1;min-width:260px">
+      <div class="card-title"><?= icon('trash', 16) ?> Paquetes de actualización descargados</div>
+      <div style="font-size:12.5px;color:var(--text-3);margin-top:4px">
+        Libera espacio en disco eliminando los paquetes de actualización descargados (.zip) y carpetas temporales.
+      </div>
+      <div style="margin-top:12px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--text-2)">
+        <div>
+          <span style="color:var(--text-3)">Paquetes descargados:</span>
+          <strong id="storage-dl-text"><?= $storageInfo['downloaded_count'] ?> (<?= human_bytes($storageInfo['downloaded_bytes']) ?>)</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3)">Copias de rollback:</span>
+          <strong id="storage-rb-text"><?= $storageInfo['rollbacks_count'] ?> (<?= human_bytes($storageInfo['rollbacks_bytes']) ?>)</strong>
+        </div>
+        <div>
+          <span style="color:var(--text-3)">Espacio total ocupado:</span>
+          <strong id="storage-total-text"><?= human_bytes($storageInfo['total_bytes']) ?></strong>
+        </div>
+      </div>
+      <div style="margin-top:12px">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);cursor:pointer">
+          <input type="checkbox" id="clean-include-rollbacks" style="cursor:pointer">
+          Incluir también las copias de seguridad de versiones anteriores (rollback)
+        </label>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:4px">
+      <button class="btn" id="btn-clean-downloads" type="button" onclick="kpCleanDownloads()" style="color:#ef4444;border-color:#ef444455;display:inline-flex;align-items:center;gap:6px">
+        <?= icon('trash',13) ?> Borrar actualizaciones descargadas
+      </button>
+    </div>
+  </div>
+  <div id="clean-status" style="display:none;margin-top:14px"></div>
+</div>
+
 <!-- Historial -->
 <div class="card card-lg" style="padding:0;margin-top:24px">
-  <div class="card-head" style="padding:20px 24px">
+  <div class="card-head" style="padding:20px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
     <div class="card-title">Historial de actualizaciones</div>
+    <button class="btn btn-ghost" type="button" onclick="kpCleanDownloads()" style="font-size:12px;color:var(--text-2);padding:6px 12px;display:inline-flex;align-items:center;gap:6px">
+      <?= icon('trash', 12) ?> Borrar actualizaciones descargadas
+    </button>
   </div>
   <?php if (!$history): ?>
     <div style="padding:48px;text-align:center;color:var(--text-3)">
@@ -174,12 +244,21 @@ function kpUpdateCheck() {
   const btn = document.getElementById('btn-check');
   const status = document.getElementById('update-status');
   const available = document.getElementById('update-available');
+  const progress = document.getElementById('update-progress');
+  const result = document.getElementById('update-result');
+  const applyBtn = document.getElementById('btn-apply');
 
   btn.disabled = true;
   btn.innerHTML = '<?= icon('search',13) ?> Buscando...';
   status.style.display = 'block';
   status.innerHTML = '<div style="padding:14px;color:var(--text-3);font-size:13.5px">Consultando GitHub...</div>';
   available.style.display = 'none';
+  if (progress) progress.style.display = 'none';
+  if (result) result.style.display = 'none';
+  if (applyBtn) {
+    applyBtn.disabled = false;
+    applyBtn.innerHTML = '<?= icon('download',13) ?> Actualizar ahora';
+  }
 
   fetch('/api/update?action=check')
     .then(r => r.json())
@@ -196,6 +275,10 @@ function kpUpdateCheck() {
         _updateData = data;
         status.style.display = 'none';
         available.style.display = 'block';
+        if (applyBtn) {
+          applyBtn.disabled = false;
+          applyBtn.innerHTML = '<?= icon('download',13) ?> Actualizar ahora';
+        }
         document.getElementById('update-version-label').textContent = data.name || ('v' + data.new_version);
         document.getElementById('update-date-label').textContent = data.published_at
           ? 'Publicado el ' + new Date(data.published_at).toLocaleDateString('es', {year:'numeric', month:'long', day:'numeric'})
@@ -297,6 +380,9 @@ function kpUpdateApply() {
               'KutPod actualizado de <strong>v' + data.from + '</strong> a <strong>v' + data.to + '</strong>. ' +
               data.files_updated + ' ficheros actualizados.<br><br>' +
               '<a href="/admin/update" class="btn btn-primary" style="margin-top:8px">Recargar página</a>';
+            btn.disabled = false;
+            btn.innerHTML = '<?= icon('download',13) ?> Actualizar ahora';
+            _updateData = null;
           }
         });
     })
@@ -341,5 +427,151 @@ function kpUpdateRollback() {
       status.innerHTML = '<div style="padding:14px;color:#ef4444;font-size:13.5px">❌ Error: ' + e.message + '</div>';
       btn.disabled = false;
     });
+}
+
+function humanBytesJs(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+function kpCleanDownloads() {
+  const includeRollbacks = document.getElementById('clean-include-rollbacks')?.checked || false;
+  const promptMsg = includeRollbacks
+    ? '¿Deseas eliminar las actualizaciones descargadas (.zip) Y también todas las copias de seguridad de versiones anteriores?'
+    : '¿Deseas eliminar los paquetes de actualizaciones descargados (.zip) y archivos temporales?';
+
+  if (!confirm(promptMsg)) return;
+
+  const btn = document.getElementById('btn-clean-downloads');
+  const status = document.getElementById('clean-status');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<?= icon('refreshCw',13) ?> Borrando...';
+  }
+  if (status) {
+    status.style.display = 'block';
+    status.innerHTML = '<div style="padding:10px;color:var(--text-3);font-size:13px">Eliminando archivos...</div>';
+  }
+
+  const body = new URLSearchParams({
+    action: 'clean_downloads',
+    include_rollbacks: includeRollbacks ? '1' : '0'
+  });
+
+  fetch('/api/update', { method: 'POST', body })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        if (status) status.innerHTML = '<div style="padding:10px;color:#ef4444;font-size:13px;background:#ef444415;border-radius:8px">❌ ' + data.error + '</div>';
+        else alert('Error: ' + data.error);
+        return;
+      }
+      const msg = 'Limpieza completada: ' + data.deleted_count + ' archivo(s) eliminados (' + data.freed_human + ' liberados).';
+      if (status) {
+        status.innerHTML = '<div style="padding:10px;color:#10b981;font-size:13px;background:#10b98115;border-radius:8px">✅ ' + msg + '</div>';
+      } else {
+        alert(msg);
+      }
+      
+      // Actualizar información de almacenamiento
+      fetch('/api/update?action=storage_info')
+        .then(r => r.json())
+        .then(info => {
+          if (info && !info.error) {
+            const dl = document.getElementById('storage-dl-text');
+            const rb = document.getElementById('storage-rb-text');
+            const tot = document.getElementById('storage-total-text');
+            if (dl) dl.textContent = info.downloaded_count + ' (' + humanBytesJs(info.downloaded_bytes) + ')';
+            if (rb) rb.textContent = info.rollbacks_count + ' (' + humanBytesJs(info.rollbacks_bytes) + ')';
+            if (tot) tot.textContent = humanBytesJs(info.total_bytes);
+          }
+        }).catch(() => {});
+    })
+    .catch(e => {
+      if (status) status.innerHTML = '<div style="padding:10px;color:#ef4444;font-size:13px;background:#ef444415;border-radius:8px">❌ Error: ' + e.message + '</div>';
+      else alert('Error: ' + e.message);
+    })
+    .finally(() => {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<?= icon('trash',13) ?> Borrar actualizaciones descargadas';
+      }
+    });
+}
+
+function kpManualUpdateUpload(e) {
+  e.preventDefault();
+  const fileInput = document.getElementById('manual-zip-input');
+  const btn = document.getElementById('btn-manual-upload');
+  const status = document.getElementById('manual-upload-status');
+
+  if (!fileInput.files || !fileInput.files[0]) {
+    alert('Por favor selecciona un archivo .zip.');
+    return;
+  }
+
+  const file = fileInput.files[0];
+  if (!file.name.toLowerCase().endsWith('.zip')) {
+    alert('El archivo seleccionado debe ser un .zip.');
+    return;
+  }
+
+  if (!confirm('¿Deseas aplicar la actualización manual desde "' + file.name + '"?\n\nSe creará un respaldo de seguridad previo de forma automática.')) {
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<?= icon('upload',13) ?> Instalando actualización...';
+  status.style.display = 'block';
+  status.innerHTML = '<div style="background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:16px;color:var(--text-2);font-size:13.5px">'
+    + '<div style="font-weight:600;margin-bottom:4px">Subiendo e instalando paquete...</div>'
+    + '<div style="font-size:12px;color:var(--text-3)">Desempaquetando archivos, respaldando versión actual y sobrescribiendo core...</div>'
+    + '</div>';
+
+  const formData = new FormData();
+  formData.append('action', 'upload');
+  formData.append('zip_file', file);
+
+  fetch('/api/update', {
+    method: 'POST',
+    body: formData
+  })
+  .then(async r => {
+    const text = await r.text();
+    try {
+      return JSON.parse(text);
+    } catch(err) {
+      throw new Error('Respuesta inválida del servidor (HTTP ' + r.status + '): ' + text.substring(0, 150));
+    }
+  })
+  .then(data => {
+    if (data.error) {
+      status.innerHTML = '<div style="background:#ef444418;border:1px solid #ef444455;border-radius:10px;padding:16px;color:#ef4444;font-size:13.5px">'
+        + '<strong>❌ Error al actualizar:</strong><div style="margin-top:6px;font-size:13px">' + data.error + '</div>'
+        + '</div>';
+      btn.disabled = false;
+      btn.innerHTML = '<?= icon('upload',13) ?> Subir e instalar actualización';
+      return;
+    }
+
+    status.innerHTML = '<div style="background:#10b98118;border:1px solid #10b98155;border-radius:10px;padding:20px;color:#10b981;font-size:14px">'
+      + '<div style="font-size:16px;font-weight:700">🎉 ¡KutPod actualizado con éxito!</div>'
+      + '<div style="margin-top:6px;font-size:13px;color:var(--text-2)">Actualizado de v' + data.from + ' a <strong>v' + data.to + '</strong> (' + data.files_updated + ' ficheros copiados).</div>'
+      + '<div style="margin-top:14px"><button class="btn btn-primary" onclick="window.location.reload()">' + '<?= icon('refreshCw',13) ?> Recargar página' + '</button></div>'
+      + '</div>';
+    fileInput.value = '';
+    btn.disabled = false;
+    btn.innerHTML = '<?= icon('upload',13) ?> Subir e instalar actualización';
+  })
+  .catch(err => {
+    status.innerHTML = '<div style="background:#ef444418;border:1px solid #ef444455;border-radius:10px;padding:16px;color:#ef4444;font-size:13.5px">'
+      + '<strong>❌ Error de conexión:</strong><div style="margin-top:6px;font-size:13px">' + err.message + '</div>'
+      + '</div>';
+    btn.disabled = false;
+    btn.innerHTML = '<?= icon('upload',13) ?> Subir e instalar actualización';
+  });
 }
 </script>

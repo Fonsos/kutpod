@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS podcasts (
   publisher       TEXT,
   owner_email     TEXT,
   copyright       TEXT,
+  license         TEXT,
+  update_frequency TEXT,
   remove_email    INTEGER NOT NULL DEFAULT 0,
   fediverse_handle TEXT,
   federate        INTEGER NOT NULL DEFAULT 1,
@@ -189,3 +191,15 @@ CREATE TABLE IF NOT EXISTS api_tokens (
   last_used_at  INTEGER,
   created_at    INTEGER NOT NULL
 );
+
+-- Índices de alto rendimiento
+CREATE INDEX IF NOT EXISTS idx_episodes_podcast ON episodes(podcast_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_slug ON episodes(slug);
+CREATE INDEX IF NOT EXISTS idx_episodes_status_pub ON episodes(status, published_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at);
+CREATE INDEX IF NOT EXISTS idx_alerts_kind_read ON alerts(kind, read_at);
+CREATE INDEX IF NOT EXISTS idx_stats_daily_ep ON op3_stats_daily(episode_id, downloads);
+CREATE INDEX IF NOT EXISTS idx_stats_daily_pod ON op3_stats_daily(podcast_id, date);
+CREATE INDEX IF NOT EXISTS idx_geo_daily_ep ON op3_geo_daily(episode_id, date);
+CREATE INDEX IF NOT EXISTS idx_apps_daily_ep ON op3_apps_daily(episode_id, date);
+

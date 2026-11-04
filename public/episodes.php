@@ -2,6 +2,46 @@
 require_once __DIR__ . '/../includes/helpers.php';
 $eps = kp_episodes();
 
+if (isset($_GET['json']) || (isset($_GET['format']) && $_GET['format'] === 'json') || (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json'))) {
+    header('Content-Type: application/json; charset=utf-8');
+    $q = trim(mb_strtolower($_GET['q'] ?? '', 'UTF-8'));
+    $tag = trim(mb_strtolower($_GET['tag'] ?? '', 'UTF-8'));
+    $items = [];
+    foreach ($eps as $ep) {
+        $p = kp_podcast_or_placeholder($ep['podcast'] ?? '');
+        $titleLower = mb_strtolower($ep['title'] ?? '', 'UTF-8');
+        $notesLower = mb_strtolower($ep['notes_md'] ?? '', 'UTF-8');
+        $tagsLower = mb_strtolower(($ep['custom_tags'] ?? '') . ',' . ($p['custom_tags'] ?? ''), 'UTF-8');
+        $catLower = mb_strtolower(($p['category'] ?? '') . ' ' . ($p['subcategory'] ?? ''), 'UTF-8');
+
+        if ($q !== '' && !str_contains($titleLower, $q) && !str_contains($notesLower, $q) && !str_contains($tagsLower, $q) && !str_contains($catLower, $q)) {
+            continue;
+        }
+        if ($tag !== '' && !str_contains($tagsLower, $tag)) {
+            continue;
+        }
+
+        $items[] = [
+            'id'            => $ep['id'],
+            'db_id'         => $ep['db_id'] ?? null,
+            'slug'          => $ep['id'],
+            'title'         => $ep['title'],
+            'podcast_slug'  => $p['id'] ?? $p['slug'] ?? '',
+            'podcast_title' => $p['title'] ?? '',
+            'category'      => $p['category'] ?? '',
+            'cover'         => $ep['cover'] ?: ($p['cover'] ?? ''),
+            'duration'      => $ep['duration'] ?? '',
+            'duration_secs' => (int)($ep['duration_secs'] ?? 0),
+            'notes_md'      => $ep['notes_md'] ?? '',
+            'custom_tags'   => $ep['custom_tags'] ?? '',
+            'date_iso'      => $ep['date_iso'] ?? '',
+            'audio_url'     => $ep['audio_url'] ?? ($ep['audio'] ?? '')
+        ];
+    }
+    echo json_encode(['items' => $items, 'total' => count($items)], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $pageEp = max(1, (int)($_GET['p'] ?? 1));
 $perPage = 24; // Múltiplo de 2 o 3, mejor 24
 $totalEpsCount = count($eps);
@@ -43,7 +83,7 @@ function pub_play_btn(array $ep, array $p, int $size = 14): string {
           <?php if (!empty($ep['notes_md'])): ?>
             <p style="font-size:13.5px;color:var(--pub-text-2);margin:4px 0 0;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.4;opacity:0.8"><?= e(mb_strimwidth(strip_tags($ep['notes_md']), 0, 200, '...')) ?></p>
           <?php endif; ?>
-          <div style="font-size:12.5px;color:var(--pub-muted);margin-top:6px"><?= e($ep['duration']) ?> · <span title="" data-kp-date="<?= e($ep['date_iso']) ?>">Publicado hace: <?= kp_relative_time($ep['date_iso']) ?></span></div>
+          <div style="font-size:12.5px;color:var(--pub-muted);margin-top:6px"><?= e($ep['duration']) ?> · <span data-kp-date="<?= e($ep['date_iso']) ?>">Publicado <?= e(kp_relative_time($ep['date_iso'])) ?></span></div>
         </div>
       </a>
     <?php endforeach; ?>

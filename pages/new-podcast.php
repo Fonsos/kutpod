@@ -19,6 +19,28 @@ if ($mode === 'edit' && $id !== '') {
 
 $team_users = kp_q("SELECT id, name, email, avatar, role FROM users WHERE role IN ('editor','author') ORDER BY name ASC") ?: [];
 
+$apple_categories = [
+    'Arts' => ['Books', 'Design', 'Fashion & Beauty', 'Food', 'Performing Arts', 'Visual Arts'],
+    'Business' => ['Careers', 'Entrepreneurship', 'Investing', 'Management', 'Marketing', 'Non-Profit'],
+    'Comedy' => ['Comedy Interviews', 'Improv', 'Stand-Up'],
+    'Education' => ['Courses', 'How To', 'Language Learning', 'Self-Improvement'],
+    'Fiction' => ['Comedy Fiction', 'Drama', 'Science Fiction'],
+    'Government' => [],
+    'Health & Fitness' => ['Alternative Health', 'Fitness', 'Medicine', 'Mental Health', 'Nutrition', 'Sexuality'],
+    'History' => [],
+    'Kids & Family' => ['Education for Kids', 'Parenting', 'Pets & Animals', 'Stories for Kids'],
+    'Leisure' => ['Animation & Manga', 'Automotive', 'Aviation', 'Crafts', 'Games', 'Hobbies', 'Home & Garden', 'Video Games'],
+    'Music' => ['Music Commentary', 'Music History', 'Music Interviews'],
+    'News' => ['Business News', 'Daily News', 'Entertainment News', 'News Commentary', 'Politics', 'Sports News', 'Tech News'],
+    'Religion & Spirituality' => ['Buddhism', 'Christianity', 'Hinduism', 'Islam', 'Judaism', 'Religion', 'Spirituality'],
+    'Science' => ['Astronomy', 'Chemistry', 'Earth Sciences', 'Life Sciences', 'Mathematics', 'Natural Sciences', 'Nature', 'Physics', 'Social Sciences'],
+    'Society & Culture' => ['Documentary', 'Personal Journals', 'Philosophy', 'Places & Travel', 'Relationships'],
+    'Sports' => ['Baseball', 'Basketball', 'Cricket', 'Fantasy Sports', 'Football', 'Golf', 'Hockey', 'Rugby', 'Soccer', 'Swimming', 'Tennis', 'Volleyball', 'Wilderness', 'Wrestling'],
+    'Technology' => [],
+    'True Crime' => [],
+    'TV & Film' => ['After Shows', 'Film History', 'Film Interviews', 'Film Reviews', 'TV Reviews'],
+];
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $pdo = kp_db();
   
@@ -156,13 +178,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($color_post === '') $color_post = $p['color'] ?? kp_random_color();
   $color = $color_post;
 
+  $location_name = trim($_POST['location_name'] ?? '');
+  $osm_id = trim($_POST['osm_id'] ?? '');
+  $lat = (isset($_POST['lat']) && $_POST['lat'] !== '' && is_numeric($_POST['lat'])) ? (float)$_POST['lat'] : null;
+  $lon = (isset($_POST['lon']) && $_POST['lon'] !== '' && is_numeric($_POST['lon'])) ? (float)$_POST['lon'] : null;
+  $license = trim($_POST['license'] ?? 'all-rights-reserved');
+  $update_frequency = trim($_POST['update_frequency'] ?? '');
+  if (!in_array($update_frequency, ['daily', 'weekly', 'biweekly', 'monthly'], true)) {
+      $update_frequency = null;
+  }
+
   if ($p) {
-      $pdo->prepare("UPDATE podcasts SET title=?, slug=?, description=?, language=?, category=?, subcategory=?, author=?, publisher=?, owner_email=?, copyright=?, type=?, parental=?, fediverse_handle=?, federate=?, cover=?, banner=?, color=?, op3=?, locked=?, hidden=?, complete=?, remove_email=?, custom_tags=?, ownership_txt=?, fixed_notes=?, status=?, guid=?, feed_redirect_slug=? WHERE slug=?")
-          ->execute([$title, $slug, $description, $language, $category, $subcategory, $author, $publisher, $owner_email, $copyright, $type, $parental, $fediverse_handle, $federate, $cover_url, $banner_url, $color, $op3, $locked, $hidden, $complete, $remove_email, $custom_tags, $ownership_txt, $fixed_notes, $status, $guid, $feed_redirect_slug, $p['id']]);
+      $pdo->prepare("UPDATE podcasts SET title=?, slug=?, description=?, language=?, category=?, subcategory=?, author=?, publisher=?, owner_email=?, copyright=?, type=?, parental=?, fediverse_handle=?, federate=?, cover=?, banner=?, color=?, op3=?, locked=?, hidden=?, complete=?, remove_email=?, custom_tags=?, ownership_txt=?, fixed_notes=?, status=?, guid=?, feed_redirect_slug=?, location_name=?, osm_id=?, lat=?, lon=?, license=?, update_frequency=? WHERE slug=?")
+          ->execute([$title, $slug, $description, $language, $category, $subcategory, $author, $publisher, $owner_email, $copyright, $type, $parental, $fediverse_handle, $federate, $cover_url, $banner_url, $color, $op3, $locked, $hidden, $complete, $remove_email, $custom_tags, $ownership_txt, $fixed_notes, $status, $guid, $feed_redirect_slug, $location_name, $osm_id, $lat, $lon, $license, $update_frequency, $p['id']]);
       $db_id = $p['db_id'];
   } else {
-      $pdo->prepare("INSERT INTO podcasts (title, slug, description, language, category, subcategory, author, publisher, owner_email, copyright, type, parental, fediverse_handle, federate, cover, banner, color, op3, locked, hidden, complete, remove_email, custom_tags, ownership_txt, fixed_notes, status, guid, feed_redirect_slug) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-          ->execute([$title, $slug, $description, $language, $category, $subcategory, $author, $publisher, $owner_email, $copyright, $type, $parental, $fediverse_handle, $federate, $cover_url, $banner_url, $color, $op3, $locked, $hidden, $complete, $remove_email, $custom_tags, $ownership_txt, $fixed_notes, $status, $guid, $feed_redirect_slug]);
+      $pdo->prepare("INSERT INTO podcasts (title, slug, description, language, category, subcategory, author, publisher, owner_email, copyright, type, parental, fediverse_handle, federate, cover, banner, color, op3, locked, hidden, complete, remove_email, custom_tags, ownership_txt, fixed_notes, status, guid, feed_redirect_slug, location_name, osm_id, lat, lon, license, update_frequency) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          ->execute([$title, $slug, $description, $language, $category, $subcategory, $author, $publisher, $owner_email, $copyright, $type, $parental, $fediverse_handle, $federate, $cover_url, $banner_url, $color, $op3, $locked, $hidden, $complete, $remove_email, $custom_tags, $ownership_txt, $fixed_notes, $status, $guid, $feed_redirect_slug, $location_name, $osm_id, $lat, $lon, $license, $update_frequency]);
       $db_id = (int)$pdo->lastInsertId();
   }
 
@@ -182,13 +214,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   kp_cache_clear();
 
   setcookie('kp_flash', 'Podcast guardado exitosamente', time() + 30, '/');
-  header('Location: /admin/podcasts'); exit;
+  header('Location: /admin/edit-podcast?id=' . urlencode($slug)); exit;
 }
 
 $sections = [
   's1-1' => 'Identidad',
   's1-2' => 'Clasificación',
-  's1-3' => 'Autor',
+  's1-3' => 'Autor & Licencia',
   's1-9' => 'Equipo',
   // 's1-5' => 'Premium', // TODO: backend logic needed
   's1-6' => 'Estadísticas · OP3',
@@ -267,18 +299,47 @@ $sections = kp_apply_filters('podcast_form_sections', $sections);
               <option value="de" <?= ($p['language']??'')==='de'?'selected':'' ?>>Alemán (de)</option>
             </select>
           </div>
-          <div class="field"><label class="label">Categoría principal <span class="req">*</span></label>
-            <select class="select" name="category" required>
-              <?php foreach (['Society & Culture','News','Technology','Politics','Business','Comedy','Education','Personal Journals','True Crime'] as $c): ?>
-                <option <?= ($p['category'] ?? '') === $c ? 'selected' : '' ?>><?= e($c) ?></option>
+          <div class="field">
+            <label class="label">Categoría principal <span class="req">*</span></label>
+            <select class="select" id="podcast_category" name="category" required>
+              <option value="">Selecciona una categoría...</option>
+              <?php foreach (array_keys($apple_categories) as $c): ?>
+                <option value="<?= e($c) ?>" <?= ($p['category'] ?? '') === $c ? 'selected' : '' ?>><?= e($c) ?></option>
               <?php endforeach; ?>
             </select>
           </div>
-          <div class="field"><label class="label">Subcategoría</label><input class="input" name="subcategory" value="<?= e($p['subcategory'] ?? '') ?>" placeholder="Opcional"></div>
+          <div class="field">
+            <label class="label">Subcategoría (Apple Podcasts)</label>
+            <select class="select" id="podcast_subcategory" name="subcategory">
+              <option value="">Sin subcategoría / Ninguna</option>
+              <?php 
+                $curr_cat = $p['category'] ?? '';
+                $curr_sub = $p['subcategory'] ?? '';
+                $avail_subs = $apple_categories[$curr_cat] ?? [];
+                foreach ($avail_subs as $s): 
+              ?>
+                <option value="<?= e($s) ?>" <?= $curr_sub === $s ? 'selected' : '' ?>><?= e($s) ?></option>
+              <?php endforeach; ?>
+              <?php if ($curr_sub !== '' && !in_array($curr_sub, $avail_subs, true)): ?>
+                <option value="<?= e($curr_sub) ?>" selected><?= e($curr_sub) ?> (personalizada)</option>
+              <?php endif; ?>
+            </select>
+          </div>
         </div>
-        <div class="field-row" style="margin-top:14px">
+        <div class="field-row-3" style="margin-top:14px">
           <div class="field"><label class="label">Tipo de podcast</label>
             <select class="select" name="type"><option value="episodic" <?= ($p['type']??'episodic')==='episodic'?'selected':'' ?>>Episódico</option><option value="serial" <?= ($p['type']??'')==='serial'?'selected':'' ?>>Serial</option></select>
+          </div>
+          <div class="field"><label class="label">Frecuencia de actualización</label>
+            <?php $curr_freq = strtolower(trim($p['update_frequency'] ?? '')); ?>
+            <select class="select" name="update_frequency">
+              <option value="" <?= ($curr_freq === '' || $curr_freq === 'auto') ? 'selected' : '' ?>>Automático (detectar ritmo)</option>
+              <option value="daily" <?= ($curr_freq === 'daily' || $curr_freq === 'diario') ? 'selected' : '' ?>>Diario</option>
+              <option value="weekly" <?= ($curr_freq === 'weekly' || $curr_freq === 'semanal') ? 'selected' : '' ?>>Semanal</option>
+              <option value="biweekly" <?= ($curr_freq === 'biweekly' || $curr_freq === 'quincenal') ? 'selected' : '' ?>>Quincenal</option>
+              <option value="monthly" <?= ($curr_freq === 'monthly' || $curr_freq === 'mensual') ? 'selected' : '' ?>>Mensual</option>
+            </select>
+            <div class="help">Etiqueta <code>podcast:updateFrequency</code>. Si no se escoge nada manual, se detecta el ritmo automáticamente.</div>
           </div>
           <div class="field"><label class="label">Parental advisory</label>
             <select class="select" name="parental"><option value="clean" <?= ($p['parental']??'clean')==='clean'?'selected':'' ?>>Apto para todos</option><option value="explicit" <?= ($p['parental']??'')==='explicit'?'selected':'' ?>>Explícito</option></select>
@@ -286,16 +347,58 @@ $sections = kp_apply_filters('podcast_form_sections', $sections);
         </div>
       </section>
 
-      <!-- 1.3 Autor -->
+      <!-- 1.3 Autor & Licencia -->
       <section id="s1-3" class="card card-lg">
-        <header class="section-head"><h2>Autor &amp; propiedad</h2></header>
+        <header class="section-head"><h2>Autor &amp; Licencia</h2></header>
         <div class="field-row">
-          <div class="field"><label class="label">Nombre del autor</label><input class="input" name="author" value="<?= e($p['author'] ?? kp_setting('owner_name', '')) ?>"></div>
+          <div class="field"><label class="label">Nombre del autor</label><input class="input" id="podcast_author" name="author" value="<?= e($p['author'] ?? kp_setting('owner_name', '')) ?>"></div>
           <div class="field"><label class="label">Publisher / editorial</label><input class="input" name="publisher" value="<?= e($p['publisher'] ?? '') ?>" placeholder="Independiente"></div>
         </div>
         <div class="field-row" style="margin-top:14px">
           <div class="field"><label class="label">Email del owner (iTunes)</label><input class="input" type="email" name="owner_email" value="<?= e($p['owner_email'] ?? '') ?>" placeholder="owner@ejemplo.com"></div>
-          <div class="field"><label class="label">Copyright</label><input class="input" name="copyright" value="<?= e($p['copyright'] ?? '© ' . date('Y') . ' ' . ($p['author'] ?? kp_setting('owner_name', ''))) ?>"></div>
+          <div class="field">
+            <label class="label">Licencia (Podcasting 2.0)</label>
+            <?php
+              $curr_license = $p['license'] ?? '';
+              if ($curr_license === '') {
+                  $c_lower = strtolower($p['copyright'] ?? '');
+                  if (strpos($c_lower, 'cc-by-nc-nd') !== false) {
+                      $curr_license = 'cc-by-nc-nd-4.0';
+                  } elseif (strpos($c_lower, 'cc-by-nc-sa') !== false) {
+                      $curr_license = 'cc-by-nc-sa-4.0';
+                  } elseif (strpos($c_lower, 'cc-by-nc') !== false) {
+                      $curr_license = 'cc-by-nc-4.0';
+                  } elseif (strpos($c_lower, 'cc-by-nd') !== false) {
+                      $curr_license = 'cc-by-nd-4.0';
+                  } elseif (strpos($c_lower, 'cc-by-sa') !== false) {
+                      $curr_license = 'cc-by-sa-4.0';
+                  } elseif (strpos($c_lower, 'cc-by') !== false) {
+                      $curr_license = 'cc-by-4.0';
+                  } elseif (strpos($c_lower, 'cc0') !== false || strpos($c_lower, 'public domain') !== false) {
+                      $curr_license = 'cc0-1.0';
+                  } else {
+                      $curr_license = 'all-rights-reserved';
+                  }
+              }
+            ?>
+            <select class="select" id="podcast_license" name="license">
+              <option value="all-rights-reserved" <?= $curr_license === 'all-rights-reserved' ? 'selected' : '' ?>>Todos los derechos reservados (All Rights Reserved)</option>
+              <option value="cc-by-4.0" <?= $curr_license === 'cc-by-4.0' ? 'selected' : '' ?>>Creative Commons Atribución (CC BY 4.0)</option>
+              <option value="cc-by-sa-4.0" <?= $curr_license === 'cc-by-sa-4.0' ? 'selected' : '' ?>>Creative Commons Atribución - CompartirIgual (CC BY-SA 4.0)</option>
+              <option value="cc-by-nc-4.0" <?= $curr_license === 'cc-by-nc-4.0' ? 'selected' : '' ?>>Creative Commons Atribución - NoComercial (CC BY-NC 4.0)</option>
+              <option value="cc-by-nc-sa-4.0" <?= $curr_license === 'cc-by-nc-sa-4.0' ? 'selected' : '' ?>>Creative Commons Atribución - NoComercial - CompartirIgual (CC BY-NC-SA 4.0)</option>
+              <option value="cc-by-nd-4.0" <?= $curr_license === 'cc-by-nd-4.0' ? 'selected' : '' ?>>Creative Commons Atribución - SinDerivadas (CC BY-ND 4.0)</option>
+              <option value="cc-by-nc-nd-4.0" <?= $curr_license === 'cc-by-nc-nd-4.0' ? 'selected' : '' ?>>Creative Commons Atribución - NoComercial - SinDerivadas (CC BY-NC-ND 4.0)</option>
+              <option value="cc0-1.0" <?= $curr_license === 'cc0-1.0' ? 'selected' : '' ?>>Dominio Público (Creative Commons CC0 1.0)</option>
+              <option value="custom" <?= $curr_license === 'custom' ? 'selected' : '' ?>>Otra / Personalizada</option>
+            </select>
+            <div class="help">Define los derechos de uso en apps Podcasting 2.0. Al cambiar la opción se sugerirá el texto legal correspondiente.</div>
+          </div>
+        </div>
+        <div class="field" style="margin-top:14px">
+          <label class="label">Aviso de Copyright</label>
+          <input class="input" id="podcast_copyright" name="copyright" value="<?= e($p['copyright'] ?? '© ' . date('Y') . ' ' . ($p['author'] ?? kp_setting('owner_name', ''))) ?>">
+          <div class="help">Texto de copyright tradicional visible en Apple Podcasts, Spotify y agregadores (<code>&lt;copyright&gt;</code>).</div>
         </div>
         <label class="toggle-row" style="margin-top:14px"><span><strong>Ocultar email</strong><br><span class="help">No incluir tu dirección de email en el feed RSS público</span></span><label class="toggle"><input type="checkbox" name="remove_email" <?= ($p['remove_email']??0)?'checked':'' ?>><span class="toggle-track"></span></label></label>
       </section>
@@ -360,14 +463,44 @@ $sections = kp_apply_filters('podcast_form_sections', $sections);
 
       <!-- 1.7 Ubicación -->
       <section id="s1-7" class="card card-lg">
-        <header class="section-head"><h2>Ubicación</h2></header>
-        <div class="field-row">
-          <div class="field"><label class="label">Nombre del lugar</label><input class="input" name="location_name" placeholder="Caracas, Venezuela"></div>
-          <div class="field"><label class="label">OpenStreetMap ID</label><input class="input tabular" name="osm_id" placeholder="R3489866"></div>
+        <header class="section-head">
+          <h2>Ubicación</h2>
+        </header>
+        <div class="help" style="margin-bottom:14px">
+          Indica la ubicación geográfica de tu podcast según el estándar Podcasting 2.0. Puedes buscar cualquier ciudad, estado o país para rellenar las coordenadas y el ID de OpenStreetMap automáticamente.
         </div>
+
+        <div class="field">
+          <label class="label">Lugar o dirección</label>
+          <div style="display:flex;gap:8px">
+            <input class="input" id="loc_name" name="location_name" value="<?= e($p['location_name'] ?? '') ?>" placeholder="Ej: Texas, Estados Unidos">
+            <button type="button" id="btn-search-loc" class="btn" style="white-space:nowrap;display:inline-flex;align-items:center;gap:6px">
+              <?= icon('search', 13) ?> Buscar coordenadas
+            </button>
+            <button type="button" id="btn-clear-loc" class="btn" title="Limpiar ubicación" style="display:inline-flex;align-items:center">
+              <?= icon('trash', 13) ?>
+            </button>
+          </div>
+          <div id="loc-spinner" style="display:none;margin-top:8px;font-size:12px;color:var(--text-muted)">
+            Buscando en OpenStreetMap...
+          </div>
+          <div id="loc-results" style="display:none;margin-top:8px;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg-card);max-height:220px;overflow-y:auto;box-shadow:var(--shadow-md)"></div>
+        </div>
+
         <div class="field-row" style="margin-top:14px">
-          <div class="field"><label class="label">Latitud</label><input class="input tabular" type="number" step="any" name="lat" placeholder="10.4806"></div>
-          <div class="field"><label class="label">Longitud</label><input class="input tabular" type="number" step="any" name="lon" placeholder="-66.9036"></div>
+          <div class="field">
+            <label class="label">OpenStreetMap ID (OSM ID)</label>
+            <input class="input tabular" id="loc_osm_id" name="osm_id" value="<?= e($p['osm_id'] ?? '') ?>" placeholder="Ej: R114690">
+            <div class="help">Prefijo: <code>R</code> (relación), <code>W</code> (vía), o <code>N</code> (nodo).</div>
+          </div>
+          <div class="field">
+            <label class="label">Latitud</label>
+            <input class="input tabular" id="loc_lat" type="number" step="any" name="lat" value="<?= (isset($p['lat']) && $p['lat'] !== null && $p['lat'] !== '') ? e($p['lat']) : '' ?>" placeholder="Ej: 31.2638">
+          </div>
+          <div class="field">
+            <label class="label">Longitud</label>
+            <input class="input tabular" id="loc_lon" type="number" step="any" name="lon" value="<?= (isset($p['lon']) && $p['lon'] !== null && $p['lon'] !== '') ? e($p['lon']) : '' ?>" placeholder="Ej: -98.5456">
+          </div>
         </div>
       </section>
 
@@ -400,9 +533,12 @@ $sections = kp_apply_filters('podcast_form_sections', $sections);
       <div style="margin-top:32px;display:flex;flex-direction:column;gap:10px">
         <button class="btn btn-primary" type="submit" name="status" value="published" style="width:100%;justify-content:center;padding:10px"><?= icon('check',13) ?> Guardar</button>
         <button class="btn" type="submit" name="status" value="draft" formnovalidate style="width:100%;justify-content:center"><?= icon('file',13) ?> Guardar borrador</button>
+        <?php if ($mode === 'edit' && $p): ?>
+          <a class="btn" href="/@<?= e($p['slug'] ?? $p['id']) ?>" target="_blank" rel="noopener" style="width:100%;justify-content:center"><?= icon('externalLink',13) ?> Ir al Podcast</a>
+        <?php endif; ?>
         <a class="btn" href="/admin/podcasts" style="width:100%;justify-content:center">Cancelar</a>
         <?php if ($mode === 'edit'): ?>
-          <button class="btn" style="color:var(--red);border-color:var(--red-10);width:100%;justify-content:center" type="submit" name="action" value="delete" formnovalidate onclick="return confirm('¿Estás seguro de que quieres eliminar este podcast y TODOS sus episodios?')"><?= icon('x',13) ?> Eliminar</button>
+          <button class="btn btn-danger" style="color:var(--red,#ef4444);border:1px solid var(--red,#ef4444);width:100%;justify-content:center" type="submit" name="action" value="delete" formnovalidate onclick="return confirm('¿Estás seguro de que quieres eliminar este podcast y TODOS sus episodios?')"><?= icon('x',13) ?> Eliminar</button>
         <?php endif; ?>
       </div>
     </aside>
@@ -505,4 +641,181 @@ function resetBanner() {
   if (bannerCancel) bannerCancel.style.display = 'none';
 }
 bannerCancel?.addEventListener('click', resetBanner);
+
+// Geocodificación interactiva con OpenStreetMap Nominatim
+(function() {
+  const locInput = document.getElementById('loc_name');
+  const btnSearch = document.getElementById('btn-search-loc');
+  const btnClear = document.getElementById('btn-clear-loc');
+  const resultsDiv = document.getElementById('loc-results');
+  const spinner = document.getElementById('loc-spinner');
+  const osmInput = document.getElementById('loc_osm_id');
+  const latInput = document.getElementById('loc_lat');
+  const lonInput = document.getElementById('loc_lon');
+
+  if (!locInput || !btnSearch) return;
+
+  function escapeHtml(str) {
+    return (str || '').replace(/[&<>"']/g, function(m) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m];
+    });
+  }
+
+  async function searchLocation() {
+    const q = locInput.value.trim();
+    if (!q) {
+      locInput.focus();
+      return;
+    }
+
+    spinner.style.display = 'block';
+    resultsDiv.style.display = 'none';
+    resultsDiv.innerHTML = '';
+
+    try {
+      const url = 'https://nominatim.openstreetmap.org/search?format=json&q=' + encodeURIComponent(q) + '&limit=5&addressdetails=1';
+      const res = await fetch(url, {
+        headers: { 'Accept': 'application/json' }
+      });
+      if (!res.ok) throw new Error('Error en el servicio de mapas');
+      const data = await res.json();
+      spinner.style.display = 'none';
+
+      if (!data || data.length === 0) {
+        resultsDiv.innerHTML = '<div style="padding:10px 14px;color:var(--text-muted);font-size:13px">No se encontraron resultados para "' + escapeHtml(q) + '". Puedes escribir las coordenadas a mano.</div>';
+        resultsDiv.style.display = 'block';
+        return;
+      }
+
+      data.forEach(item => {
+        const div = document.createElement('div');
+        div.style.cssText = 'padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;display:flex;flex-direction:column;gap:2px;transition:background 0.15s ease;';
+        div.onmouseenter = () => div.style.background = 'var(--bg-hover, rgba(255,255,255,0.05))';
+        div.onmouseleave = () => div.style.background = 'transparent';
+
+        // Determinar prefijo OSM (R para relation, W para way, N para node)
+        let osmPrefix = 'N';
+        if (item.osm_type === 'relation') osmPrefix = 'R';
+        else if (item.osm_type === 'way') osmPrefix = 'W';
+        const formattedOsmId = osmPrefix + item.osm_id;
+
+        div.innerHTML = `
+          <strong style="font-size:13.5px;color:var(--text-main)">${escapeHtml(item.display_name)}</strong>
+          <span style="font-size:11.5px;color:var(--text-muted);font-family:ui-monospace,monospace">OSM: ${formattedOsmId} · Lat: ${parseFloat(item.lat).toFixed(4)}, Lon: ${parseFloat(item.lon).toFixed(4)} · Tipo: ${item.type || item.class}</span>
+        `;
+
+        div.onclick = () => {
+          locInput.value = item.display_name;
+          latInput.value = parseFloat(item.lat);
+          lonInput.value = parseFloat(item.lon);
+          osmInput.value = formattedOsmId;
+          resultsDiv.style.display = 'none';
+        };
+
+        resultsDiv.appendChild(div);
+      });
+      resultsDiv.style.display = 'block';
+
+    } catch (err) {
+      spinner.style.display = 'none';
+      resultsDiv.innerHTML = '<div style="padding:10px 14px;color:var(--red, #e53e3e);font-size:13px">No se pudo consultar el servicio de OpenStreetMap. Por favor verifica tu conexión o ingresa los datos manualmente.</div>';
+      resultsDiv.style.display = 'block';
+    }
+  }
+
+  btnSearch.addEventListener('click', (e) => {
+    e.preventDefault();
+    searchLocation();
+  });
+
+  locInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      searchLocation();
+    }
+  });
+
+  btnClear?.addEventListener('click', (e) => {
+    e.preventDefault();
+    locInput.value = '';
+    latInput.value = '';
+    lonInput.value = '';
+    osmInput.value = '';
+    resultsDiv.style.display = 'none';
+    resultsDiv.innerHTML = '';
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!resultsDiv.contains(e.target) && e.target !== btnSearch && e.target !== locInput) {
+      resultsDiv.style.display = 'none';
+    }
+  });
+})();
+
+// Actualización dinámica de subcategorías de Apple Podcasts
+(function() {
+  const catSelect = document.getElementById('podcast_category');
+  const subSelect = document.getElementById('podcast_subcategory');
+  if (!catSelect || !subSelect) return;
+
+  const appleCategories = <?= json_encode($apple_categories, JSON_UNESCAPED_UNICODE) ?>;
+
+  catSelect.addEventListener('change', function() {
+    const selectedCat = this.value;
+    const subs = appleCategories[selectedCat] || [];
+    
+    subSelect.innerHTML = '';
+    
+    if (subs.length === 0) {
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = selectedCat ? 'No aplica / Sin subcategoría' : 'Sin subcategoría / Ninguna';
+      subSelect.appendChild(opt);
+      subSelect.disabled = subs.length === 0 && selectedCat !== '';
+    } else {
+      subSelect.disabled = false;
+      const defOpt = document.createElement('option');
+      defOpt.value = '';
+      defOpt.textContent = 'Sin subcategoría / Ninguna';
+      subSelect.appendChild(defOpt);
+      
+      subs.forEach(s => {
+        const opt = document.createElement('option');
+        opt.value = s;
+        opt.textContent = s;
+        subSelect.appendChild(opt);
+      });
+    }
+  });
+})();
+
+// Manejador de licencias y actualización automática de Copyright
+(function() {
+  const licSelect = document.getElementById('podcast_license');
+  const copyInput = document.getElementById('podcast_copyright');
+  const authorInput = document.getElementById('podcast_author');
+  if (!licSelect || !copyInput) return;
+
+  const currentYear = new Date().getFullYear();
+
+  licSelect.addEventListener('change', function() {
+    const lic = this.value;
+    const author = (authorInput?.value || '').trim() || 'Autor';
+
+    const templates = {
+      'all-rights-reserved': `© ${currentYear} ${author}. Todos los derechos reservados.`,
+      'cc-by-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución 4.0 Internacional (CC BY 4.0).`,
+      'cc-by-sa-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución-CompartirIgual 4.0 Internacional (CC BY-SA 4.0).`,
+      'cc-by-nc-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución-NoComercial 4.0 Internacional (CC BY-NC 4.0).`,
+      'cc-by-nc-sa-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución-NoComercial-CompartirIgual 4.0 Internacional (CC BY-NC-SA 4.0).`,
+      'cc-by-nd-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución-SinDerivadas 4.0 Internacional (CC BY-ND 4.0).`,
+      'cc-by-nc-nd-4.0': `© ${currentYear} ${author}. Licencia Creative Commons Atribución-NoComercial-SinDerivadas 4.0 Internacional (CC BY-NC-ND 4.0).`,
+      'cc0-1.0': `Dedicado al dominio público bajo Creative Commons CC0 1.0 Universal.`
+    };
+
+    if (templates[lic]) {
+      copyInput.value = templates[lic];
+    }
+  });
+})();
 </script>

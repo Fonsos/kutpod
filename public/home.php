@@ -113,7 +113,7 @@ if (kp_plugin_is_active('premium')) {
           <?php endif; ?>
           <span>Episodio <?= (int)$featuredEp['n'] ?></span><span>·</span>
         <?php endif; ?>
-        <span title="" data-kp-date="<?= e($featuredEp['date_iso']) ?>">Publicado hace: <?= kp_relative_time($featuredEp['date_iso']) ?></span>
+        <span data-kp-date="<?= e($featuredEp['date_iso']) ?>">Publicado <?= e(kp_relative_time($featuredEp['date_iso'])) ?></span>
       </div>
     </div>
     <?php if ($featured['cover']): ?>
@@ -165,7 +165,7 @@ if (kp_plugin_is_active('premium')) {
               <span style="display:inline-block;background:#10b981;color:#fff;border-radius:4px;font-size:9px;padding:1px 3px;line-height:1;font-weight:800">$</span>
             <?php endif; ?>
           </h3>
-          <div style="font-size:12.5px;color:var(--pub-muted);margin-top:6px"><?= e($ep['duration']) ?> · <span title="" data-kp-date="<?= e($ep['date_iso']) ?>">Publicado hace: <?= kp_relative_time($ep['date_iso']) ?></span></div>
+          <div style="font-size:12.5px;color:var(--pub-muted);margin-top:6px"><?= e($ep['duration']) ?> · <span data-kp-date="<?= e($ep['date_iso']) ?>">Publicado <?= e(kp_relative_time($ep['date_iso'])) ?></span></div>
         </div>
       </a>
     <?php endforeach; ?>

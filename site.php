@@ -66,6 +66,31 @@ if (preg_match('#^/users/([a-z0-9\-]+)(?:/(inbox|outbox|followers|notes/[^/]+))?
   exit;
 }
 
+// Enrutamiento directo para reproductor incrustado /embed
+if (preg_match('#^/embed(?:/@([a-z0-9\-]+)/([a-z0-9\-]+)|/([a-z0-9\-]+)/([a-z0-9\-]+)|/([a-z0-9\-]+))?/?$#i', parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), $m)) {
+  $_GET['r'] = 'embed';
+  if (!empty($m[1]) && !empty($m[2])) {
+    $_GET['show'] = $m[1];
+    $_GET['ep'] = $m[2];
+  } elseif (!empty($m[3]) && !empty($m[4])) {
+    $_GET['show'] = $m[3];
+    $_GET['ep'] = $m[4];
+  } elseif (!empty($m[5])) {
+    if (is_numeric($m[5])) {
+      $_GET['id'] = $m[5];
+    } else {
+      $_GET['ep'] = $m[5];
+    }
+  }
+  require __DIR__ . '/public/embed.php';
+  exit;
+}
+
+if (($_GET['r'] ?? '') === 'embed') {
+  require __DIR__ . '/public/embed.php';
+  exit;
+}
+
 // Fallback para /episodes si el servidor no procesa .htaccess
 if (preg_match('#^/episodes/?$#i', parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH))) {
   $_GET['r'] = 'episodes';

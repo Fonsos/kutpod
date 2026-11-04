@@ -42,11 +42,12 @@ $params[':lim'] = $perPage;
 $params[':off'] = $offset;
 $st = $pdo->prepare("
     SELECT id, slug, title, notes_md AS description, number AS episode, season,
-           audio_url, cover, duration_secs AS duration, published_at, status,
+           audio_url, cover, duration_secs AS duration,
+           COALESCE(published_at, publish_at, created_at) AS published_at, status,
            ep_type AS episode_type, parental AS explicit
     FROM episodes
     WHERE $where
-    ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+    ORDER BY COALESCE(published_at, publish_at, created_at) DESC, id DESC
     LIMIT :lim OFFSET :off
 ");
 foreach ($params as $k => $v) {

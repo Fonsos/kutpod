@@ -132,12 +132,18 @@ if (is_string($chaptersJson) && $chaptersJson !== '') {
 
 // ── 8) Actualizar episodio ─────────────────────────────────────────
 $status = $episode['status'];
-$publishedAt = $episode['publish_at'];
+$publishAt = $episode['publish_at'];
+$publishedAt = $episode['published_at'] ?? $episode['publish_at'];
 
 if (!empty($_POST['publish_at'])) {
     $ts = strtotime((string)$_POST['publish_at']);
     $status = $ts > time() ? 'scheduled' : 'published';
-    $publishedAt = gmdate('Y-m-d H:i:s', $ts);
+    $publishAt = gmdate('Y-m-d H:i:s', $ts);
+    if ($status === 'published') {
+        $publishedAt = $publishAt;
+    }
+} elseif ($status === 'published' && empty($publishedAt)) {
+    $publishedAt = $publishAt ?: gmdate('Y-m-d H:i:s');
 }
 
 $upd = $pdo->prepare("
@@ -156,6 +162,7 @@ $upd = $pdo->prepare("
         chapters_url = :ch,
         status = :st,
         publish_at = :pub,
+        published_at = :pub_at,
         updated_at = :now
     WHERE id = :id
 ");
@@ -174,7 +181,8 @@ $upd->execute([
     ':tr'       => $transcriptRel,
     ':ch'       => $chaptersRel,
     ':st'       => $status,
-    ':pub'      => $publishedAt,
+    ':pub'      => $publishAt,
+    ':pub_at'   => ($status === 'published') ? $publishedAt : null,
     ':now'      => $now,
     ':id'       => $episodeId,
 ]);

@@ -123,8 +123,13 @@ $is_auth_page = in_array($page, ['login', 'login-2fa', 'forgot', 'reset', 'recov
         <?= icon('chevronRight',14) ?>
         <span class="crumb-current"><?= e($title ?? 'Página') ?></span>
       </div>
-      <form class="search" action="<?= admin_url('search') ?>" method="GET">
-        <label><?= icon('search',14) ?><input name="q" placeholder="Buscar podcasts, episodios, invitados…" value="<?= e($_GET['q'] ?? '') ?>"/></label>
+      <form class="search" action="<?= admin_url('search') ?>" method="GET" autocomplete="off" role="search">
+        <label style="display:flex;align-items:center;gap:8px;width:100%;cursor:text">
+          <?= icon('search',14) ?>
+          <input name="q" placeholder="Buscar podcasts, episodios, invitados…" value="<?= e($_GET['q'] ?? '') ?>" autocomplete="off" spellcheck="false"/>
+        </label>
+        <kbd>⌘K</kbd>
+        <div class="search-dropdown" id="search-dropdown" style="display:none;" role="listbox"></div>
       </form>
     </div>
     <?php endif; ?>

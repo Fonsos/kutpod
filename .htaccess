@@ -10,11 +10,14 @@ Options -MultiViews
 # 0) Cabeceras de seguridad HTTP
 # ----------------------------------------------------------------------------
 <IfModule mod_headers.c>
+  SetEnvIf Request_URI "^/embed" IS_EMBED
   Header always set X-Content-Type-Options "nosniff"
-  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set X-Frame-Options "SAMEORIGIN" env=!IS_EMBED
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
   Header always set X-XSS-Protection "1; mode=block"
+  Header always set Content-Security-Policy "frame-ancestors *" env=IS_EMBED
+  Header always set Access-Control-Allow-Origin "*" env=IS_EMBED
 </IfModule>
 
 # ----------------------------------------------------------------------------
@@ -70,8 +73,10 @@ RewriteRule ^admin/podcast/([a-zA-Z0-9\-]+)/?$        /index.php?page=podcast&id
 RewriteRule ^admin/podcast/([a-zA-Z0-9\-]+)/edit/?$   /index.php?page=edit-podcast&id=$1 [QSA,L]
 
 # ----------------------------------------------------------------------------
-# 7) Sitio público · URLs limpias (kutpod.io/@show, /shows, /p/about, /)
+# 7) Sitio público · URLs limpias (kutpod.io/@show, /shows, /p/about, /embed, /)
 # ----------------------------------------------------------------------------
+RewriteRule ^embed/@([a-zA-Z0-9\-]+)/([a-zA-Z0-9\-]+)/?$ /site.php?r=embed&show=$1&ep=$2 [QSA,L]
+RewriteRule ^embed/([a-zA-Z0-9\-]+)/?$                  /site.php?r=embed&ep=$1          [QSA,L]
 RewriteRule ^@([a-zA-Z0-9\-]+)/?$               /site.php?r=show&id=$1                  [QSA,L]
 RewriteRule ^@([a-zA-Z0-9\-]+)/([a-zA-Z0-9\-]+)/?$ /site.php?r=episode&show=$1&ep=$2       [QSA,L]
 RewriteRule ^shows/?$                        /site.php?r=shows                       [QSA,L]
