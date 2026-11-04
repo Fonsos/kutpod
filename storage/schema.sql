@@ -196,6 +196,21 @@ CREATE TABLE IF NOT EXISTS api_tokens (
 CREATE INDEX IF NOT EXISTS idx_episodes_podcast ON episodes(podcast_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_slug ON episodes(slug);
 CREATE INDEX IF NOT EXISTS idx_episodes_status_pub ON episodes(status, published_at DESC);
+-- Alertas del panel (la misma definición que las migraciones de includes/db.php). Sin esta tabla una
+-- instalación nueva falla al crear los índices de abajo.
+CREATE TABLE IF NOT EXISTS alerts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  body TEXT,
+  link TEXT,
+  actor_url TEXT,
+  action_type TEXT,
+  actor_avatar TEXT,
+  actor_name TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  read_at TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_alerts_unread ON alerts(read_at);
 CREATE INDEX IF NOT EXISTS idx_alerts_kind_read ON alerts(kind, read_at);
 CREATE INDEX IF NOT EXISTS idx_stats_daily_ep ON op3_stats_daily(episode_id, downloads);
