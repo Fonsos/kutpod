@@ -99,13 +99,25 @@ try {
 
 // Schema base
 $schema = file_get_contents($ROOT . '/storage/schema.sql');
-$pdo->exec($schema);
+// Sentencia a sentencia: schema.sql incluye índices sobre tablas OP3 que solo crea kp_op3_ensure_schema()
+// (más abajo); con un único exec() la instalación se detenía en el primero. Los que fallan se reintentan después.
+$pendientes = [];
+foreach (preg_split('/;[ \t]*\r?\n/', $schema) as $stmt) {
+  $stmt = trim($stmt);
+  if ($stmt === '') continue;
+  try { $pdo->exec($stmt); } catch (Throwable $e) { $pendientes[] = $stmt; }
+}
 out('Esquema base aplicado · ' . substr_count($schema, 'CREATE TABLE') . ' tablas', 'ok');
 
 // Schema OP3 (idempotente, lo hace el tracker)
 require_once $ROOT . '/includes/op3-tracker.php';
 kp_op3_ensure_schema();
 out('Tablas OP3 listas (hits, downloads, stats_daily, geo, apps, botip_rules)', 'ok');
+
+foreach ($pendientes as $stmt) {
+  try { $pdo->exec($stmt); }
+  catch (Throwable $e) { out('No se pudo aplicar una sentencia del esquema: ' . $e->getMessage(), 'err'); exit(1); }
+}
 
 // Usuario owner
 $hash = password_hash($password, PASSWORD_BCRYPT);
