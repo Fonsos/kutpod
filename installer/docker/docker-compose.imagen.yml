@@ -1,0 +1,26 @@
+# KutPod · usando la IMAGEN ya publicada (no hay que clonar ni compilar nada).
+#
+#   mkdir kutpod && cd kutpod
+#   curl -O https://raw.githubusercontent.com/ernestoacostame/kutpod/main/installer/docker/docker-compose.imagen.yml
+#   docker compose -f docker-compose.imagen.yml up -d
+#
+# Abre http://IP-DEL-SERVIDOR:8080 y sigue el instalador web.
+# Actualizar:  docker compose -f docker-compose.imagen.yml pull && docker compose -f docker-compose.imagen.yml up -d
+services:
+  kutpod:
+    image: ghcr.io/ernestoacostame/kutpod:${KUTPOD_TAG:-latest}
+    container_name: kutpod
+    restart: unless-stopped
+    ports:
+      - "${KUTPOD_PORT:-8080}:80"
+    volumes:
+      - kutpod-storage:/var/www/html/storage     # base de datos y ajustes
+      - kutpod-media:/var/www/html/media         # audios e imágenes
+    environment:
+      PUID: "${PUID:-33}"                        # Unraid: 99
+      PGID: "${PGID:-33}"                        # Unraid: 100
+      TZ: "${TZ:-Europe/Madrid}"
+
+volumes:
+  kutpod-storage:
+  kutpod-media:

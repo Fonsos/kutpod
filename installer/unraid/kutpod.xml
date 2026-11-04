@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>KutPod</Name>
+  <Repository>ghcr.io/ernestoacostame/kutpod:latest</Repository>
+  <Registry>https://github.com/ernestoacostame/kutpod/pkgs/container/kutpod</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/ernestoacostame/kutpod/issues</Support>
+  <Project>https://github.com/ernestoacostame/kutpod</Project>
+  <Overview>KutPod: alojamiento de podcasts (PHP + SQLite) de la suite KutStudio. Feed RSS, reproductor web embebible, Fediverso (ActivityPub), estadísticas OP3 y API para KutEditor. Tras arrancar, abre la interfaz web y sigue el instalador para crear el usuario administrador. Pon delante un proxy inverso con HTTPS para publicar el podcast.</Overview>
+  <Category>MediaServer:Music Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8080]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/ernestoacostame/kutpod/main/installer/unraid/kutpod.xml</TemplateURL>
+  <Icon/>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <DonateText/>
+  <DonateLink/>
+  <Requires/>
+  <Config Name="Puerto web" Target="80" Default="8080" Mode="tcp" Description="Puerto en el que escucha KutPod." Type="Port" Display="always" Required="true" Mask="false">8080</Config>
+  <Config Name="Datos (BD y ajustes)" Target="/var/www/html/storage" Default="/mnt/user/appdata/kutpod/storage" Mode="rw" Description="Base de datos SQLite, ajustes y copias de seguridad. Imprescindible conservarla." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/kutpod/storage</Config>
+  <Config Name="Medios (audios e imágenes)" Target="/var/www/html/media" Default="/mnt/user/appdata/kutpod/media" Mode="rw" Description="Audios de los episodios, portadas y banners. Puede apuntar a un share del array." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/kutpod/media</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Usuario con el que corre (Unraid: 99 = nobody)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Grupo con el que corre (Unraid: 100 = users)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Zona horaria" Target="TZ" Default="Europe/Madrid" Mode="" Description="Zona horaria de PHP." Type="Variable" Display="advanced" Required="false" Mask="false">Europe/Madrid</Config>
+</Container>

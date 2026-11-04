@@ -1,0 +1,28 @@
+# KutPod · construyendo la imagen desde este repositorio.
+#   cd installer/docker && cp .env.example .env && docker compose up -d --build
+# (Para usar la imagen ya publicada, sin compilar nada: docker-compose.imagen.yml)
+services:
+  kutpod:
+    build:
+      context: ../..
+      dockerfile: installer/docker/Dockerfile
+      args:
+        WITH_WHISPER: "${WITH_WHISPER:-0}"
+    image: kutpod:local
+    container_name: kutpod
+    restart: unless-stopped
+    ports:
+      - "${KUTPOD_PORT:-8080}:80"
+    volumes:
+      - kutpod-storage:/var/www/html/storage
+      - kutpod-media:/var/www/html/media
+      - kutpod-cache:/cache
+    environment:
+      PUID: "${PUID:-33}"
+      PGID: "${PGID:-33}"
+      TZ: "${TZ:-Europe/Madrid}"
+
+volumes:
+  kutpod-storage:
+  kutpod-media:
+  kutpod-cache:

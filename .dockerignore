@@ -1,0 +1,9 @@
+.git
+.github
+dist
+installer/bazzite
+installer/container
+storage/kutpod.db*
+storage/install.lock
+media
+.env
