@@ -271,11 +271,11 @@ function kp_ap_inbox(string $slug): void {
         $targetLink = is_string($likedObj) ? $likedObj : ($likedObj['id'] ?? $likedObj['url'] ?? '');
         $episodeId = null;
         if ($targetLink) {
-          if (preg_match('#/users/([^/]+)/(?:notes|activities)/([^/?#]+)#', $targetLink, $m)) {
+          if (preg_match('~/users/([^/]+)/(?:notes|activities)/([^/?#]+)~', $targetLink, $m)) {
             $cleanEp = preg_replace('/-\d+$/', '', $m[2]);
             $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $cleanEp]);
             if ($epRow) $episodeId = (int)$epRow['id'];
-          } elseif (preg_match('#/@([^/]+)/([^/?#]+)#', $targetLink, $m)) {
+          } elseif (preg_match('~/@([^/]+)/([^/?#]+)~', $targetLink, $m)) {
             $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $m[2]]);
             if ($epRow) $episodeId = (int)$epRow['id'];
           }
@@ -306,12 +306,12 @@ function kp_ap_inbox(string $slug): void {
       $rawObj = $a['object'] ?? '';
       $targetLink = is_string($rawObj) ? $rawObj : ($rawObj['id'] ?? $rawObj['url'] ?? '');
       $episodeId = null;
-      if ($targetLink && preg_match('#/users/([^/]+)/(?:notes|activities)/([^/?#]+)#', $targetLink, $m)) {
+      if ($targetLink && preg_match('~/users/([^/]+)/(?:notes|activities)/([^/?#]+)~', $targetLink, $m)) {
         $cleanEp = preg_replace('/-\d+$/', '', $m[2]);
         $targetLink = kp_ap_base() . "/@" . $m[1] . "/" . $cleanEp;
         $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $cleanEp]);
         if ($epRow) $episodeId = (int)$epRow['id'];
-      } elseif ($targetLink && preg_match('#/@([^/]+)/([^/?#]+)#', $targetLink, $m)) {
+      } elseif ($targetLink && preg_match('~/@([^/]+)/([^/?#]+)~', $targetLink, $m)) {
         $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $m[2]]);
         if ($epRow) $episodeId = (int)$epRow['id'];
       }
@@ -323,7 +323,7 @@ function kp_ap_inbox(string $slug): void {
         if ($outboxRow) {
           $outJson = json_decode($outboxRow['object_json'] ?? '', true);
           $noteUrl = $outJson['object']['url'] ?? $outJson['url'] ?? '';
-          if ($noteUrl && preg_match('#/@([^/]+)/([^/?#]+)#', $noteUrl, $nm)) {
+          if ($noteUrl && preg_match('~/@([^/]+)/([^/?#]+)~', $noteUrl, $nm)) {
             $epRow = kp_one("SELECT id FROM episodes WHERE podcast_id = ? AND slug = ?", [$p['id'], $nm[2]]);
             if ($epRow) {
               $episodeId = (int)$epRow['id'];
@@ -876,7 +876,7 @@ function kp_ap_get_episode_likes($episodeId): array {
       }
 
       // 2. Coincidencia por regex en URLs ActivityPub (/notes/cleanSlug o /@show/cleanSlug)
-      if (!$matched && preg_match('#/(?:notes|@[^/]+)/([^/?#]+)#', $lnk, $nm)) {
+      if (!$matched && preg_match('~/(?:notes|@[^/]+)/([^/?#]+)~', $lnk, $nm)) {
         $cleanLinkEp = preg_replace('/-\d+$/', '', $nm[1]);
         if ($cleanLinkEp === $epSlug) {
           $matched = true;

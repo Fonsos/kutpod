@@ -758,10 +758,10 @@ $total_unread_all = $stats['all']['unread'] ?? 0;
               <div>
                 <?php if (!empty($a['link']) && $a['link'] !== '/admin/alerts'):
                   $lnk = $a['link'];
-                  if (preg_match('#/users/([^/]+)/notes/([^/?#]+)#', $lnk, $m)) {
+                  if (preg_match('~/users/([^/]+)/notes/([^/?#]+)~', $lnk, $m)) {
                     $cleanEp = preg_replace('/-\d+$/', '', $m[2]);
                     $lnk = "/@" . $m[1] . "/" . $cleanEp;
-                  } elseif (preg_match('#/users/([^/?#]+)/?$#', $lnk, $m)) {
+                  } elseif (preg_match('~/users/([^/?#]+)/?$~', $lnk, $m)) {
                     $lnk = "/@" . $m[1];
                   }
 
