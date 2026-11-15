@@ -137,7 +137,8 @@ function xml_sanitize(?string $str): string {
     return preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $str);
 }
 
-$base = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'www.tupodcast.com');
+// Detrás de un proxy (NPM, Cloudflare…) $_SERVER['HTTPS'] no existe: kp_base_url() mira también X-Forwarded-Proto
+$base = kp_base_url();
 // Tracker nativo · cada enclosure pasa por /r/{show}/{ep}/audio.ext
 // Si op3 está OFF en el podcast, el tracker hace 302 directo sin loggear.
 $tracker = $base . '/r/' . rawurlencode($p['slug']) . '/';
@@ -212,7 +213,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
     <itunes:email><?= e($p['owner_email']) ?></itunes:email>
   </itunes:owner>
   <?php endif; ?>
-  <?php if ($p['cover']): ?><itunes:image href="<?= e($base . $p['cover']) ?>"/><?php endif; ?>
+  <?php if ($p['cover']): ?><itunes:image href="<?= e(kp_abs_url($p['cover'], $base)) ?>"/><?php endif; ?>
   <copyright><?= e($p['copyright'] ?? '') ?></copyright>
   <?php
     $lic = !empty($p['license']) ? trim($p['license']) : '';
@@ -408,7 +409,7 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
       $item_cover = $e['cover'] ?: ($p['cover'] ?? '');
       if ($item_cover): 
     ?>
-    <itunes:image href="<?= e($base . $item_cover) ?>"/>
+    <itunes:image href="<?= e(kp_abs_url($item_cover, $base)) ?>"/>
     <?php endif; ?>
     <?php if (!empty($e['guest']) || !empty($p['author']) || !empty($p['publisher'])): ?>
     <itunes:author><?= e(!empty($e['guest']) ? $e['guest'] : (!empty($p['author']) ? $p['author'] : $p['publisher'])) ?></itunes:author>
@@ -421,10 +422,10 @@ echo '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
           $tr_type = 'application/json';
       }
     ?>
-    <podcast:transcript url="<?= e($base . $e['transcript_url']) ?>" type="<?= $tr_type ?>"/>
+    <podcast:transcript url="<?= e(kp_abs_url($e['transcript_url'], $base)) ?>" type="<?= $tr_type ?>"/>
     <?php endif; ?>
     <?php if (!empty($e['chapters_url'])): ?>
-    <podcast:chapters url="<?= e($base . $e['chapters_url']) ?>" type="application/json+chapters"/>
+    <podcast:chapters url="<?= e(kp_abs_url($e['chapters_url'], $base)) ?>" type="application/json+chapters"/>
     <?php endif; ?>
     <?php if (!empty($e['location_name'])): ?>
     <podcast:location<?= (!empty($e['lat']) && !empty($e['lon'])) ? ' geo="geo:' . e($e['lat']) . ',' . e($e['lon']) . '"' : '' ?>><?= e($e['location_name']) ?></podcast:location>

@@ -69,8 +69,8 @@ function kp_check_scheduled() {
     $stmt = $pdo->prepare("UPDATE episodes SET status = 'published', published_at = COALESCE(published_at, publish_at, created_at, ?) WHERE status = 'scheduled' AND COALESCE(published_at, publish_at, created_at) <= ?");
     $stmt->execute([$now, $now]);
 
-    $domain = kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? 'localhost');
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+    $domain = kp_handle_domain();
+    $protocol = kp_get_protocol() . '://';
 
     foreach ($pending as $ep) {
       $p = kp_find_podcast((string)$ep['podcast_id']);

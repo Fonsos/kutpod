@@ -447,7 +447,7 @@ $sections = kp_apply_filters('podcast_form_sections', $sections);
           <?php
             $p_slug = is_array($p) ? ($p['id'] ?? 'slug') : 'slug';
             $p_guid = is_array($p) ? ($p['guid'] ?? '') : '';
-            $display_base = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost');
+            $display_base = kp_base_url();
             $display_tracker = $display_base . '/r/' . rawurlencode($p_slug) . '/';
             $display_guid = !empty($p_guid) ? $p_guid : kp_deterministic_podcast_guid(kp_canonical_feed_url($p_slug));
             $display_prefix = 'https://op3.dev/e,pg=' . $display_guid . '/' . preg_replace('#^https?://#', '', $display_tracker);

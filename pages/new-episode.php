@@ -223,8 +223,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   kp_do_action('episode_saved', (int)$episode_id, $_POST);
 
   if ($status === 'published' && !$was_published) {
-      $domain = kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? 'localhost');
-      $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+      $domain = kp_handle_domain();
+      $protocol = kp_get_protocol() . '://';
       $feed_url = kp_canonical_feed_url($p['id'] ?? '');
       $ep_url = $protocol . $domain . '/@' . ($p['id'] ?? '') . '/' . $slug;
       kp_notify_websub($feed_url);
@@ -320,7 +320,7 @@ $sections = [
             <div class="field">
               <label class="label">Permalink</label>
               <div style="display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:0 12px;overflow:hidden;width:100%">
-                <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
+                <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= e(kp_base_url()) ?>/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
                 <input type="text" id="permalink_input" name="custom_slug" class="input" value="<?= e($ep['slug'] ?? '') ?>" style="border:none;background:transparent;padding-left:4px;width:100%;font-weight:600;box-shadow:none;outline:none" placeholder="titulo-del-episodio">
                 <button type="button" class="btn btn-ghost" id="btn-copy-url" style="border:none;padding:8px;margin-left:4px;cursor:pointer;display:flex;align-items:center;background:transparent" title="Copiar URL completa">
                   <?= icon('copy', 14) ?>
@@ -381,7 +381,7 @@ $sections = [
             <div class="field">
               <label class="label">Reproductor embebido</label>
               <div style="display:flex;align-items:center;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:0 12px;overflow:hidden;width:100%">
-                <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>/embed/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
+                <span class="muted" style="font-size:14px;white-space:nowrap;user-select:none"><?= e(kp_base_url()) ?>/embed/@<?= e($p['slug'] ?? $p['id']) ?>/</span>
                 <input type="text" id="embed_slug_input" readonly class="input" value="<?= e($ep['slug'] ?? '') ?>" style="border:none;background:transparent;padding-left:4px;width:100%;font-weight:600;box-shadow:none;outline:none;cursor:default" placeholder="titulo-del-episodio">
                 <button type="button" class="btn btn-ghost" id="btn-copy-embed" style="border:none;padding:8px;margin-left:4px;cursor:pointer;display:flex;align-items:center;background:transparent" title="Copiar código iframe del reproductor embebido">
                   <?= icon('copy', 14) ?>
@@ -843,7 +843,7 @@ const copyBtn = document.getElementById('btn-copy-url');
 if (copyBtn) {
   copyBtn.addEventListener('click', function(e) {
     e.preventDefault();
-    const domain = "<?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>";
+    const domain = "<?= e(kp_base_url()) ?>";
     const podcast = "/@<?= e($p['slug'] ?? $p['id']) ?>/";
     const slug = document.getElementById('permalink_input').value || 'titulo-del-episodio';
     const fullUrl = domain + podcast + slug;
@@ -869,7 +869,7 @@ if (embedSlugInput) {
 if (copyEmbedBtn) {
   copyEmbedBtn.addEventListener('click', function(e) {
     e.preventDefault();
-    const domain = "<?= (isset($_SERVER['HTTPS']) ? 'https://' : 'http://') . e(kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? '')) ?>";
+    const domain = "<?= e(kp_base_url()) ?>";
     const podcast = "/embed/@<?= e($p['slug'] ?? $p['id']) ?>/";
     const slug = document.getElementById('embed_slug_input')?.value || document.getElementById('permalink_input')?.value || 'titulo-del-episodio';
     const fullEmbedUrl = domain + podcast + slug;

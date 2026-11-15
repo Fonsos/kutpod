@@ -51,10 +51,30 @@ function kp_instance(): array {
   ];
 }
 
+/**
+ * Deja un dominio en su forma limpia: sin esquema, sin ruta/consulta/fragmento, sin barras finales y en minúsculas
+ * (conserva el puerto). «https://Mi.Dominio.com/» → «mi.dominio.com».
+ */
+function kp_normalize_domain(string $domain): string {
+  $domain = trim($domain);
+  $domain = preg_replace('~^[a-z][a-z0-9+.\-]*://~i', '', $domain);
+  $domain = preg_split('~[/?#]~', $domain, 2)[0] ?? '';
+  return strtolower(trim($domain));
+}
+
 function kp_handle_domain(): string {
-  $domain = kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? 'localhost');
-  $domain = preg_replace('#^https?://#i', '', $domain);
-  return rtrim($domain, '/');
+  $domain = kp_normalize_domain((string)kp_setting('instance_domain', ''));
+  if ($domain === '') $domain = kp_normalize_domain($_SERVER['HTTP_HOST'] ?? 'localhost');
+  return $domain;
+}
+
+/**
+ * URL absoluta para un recurso: si ya lo es (http:// o https://, como las de episodios importados de otro host) se
+ * devuelve tal cual; si es una ruta local se le antepone la base.
+ */
+function kp_abs_url(string $url, ?string $base = null): string {
+  if (preg_match('~^https?://~i', $url)) return $url;
+  return ($base ?? kp_base_url()) . $url;
 }
 
 function kp_get_protocol(): string {
@@ -491,11 +511,10 @@ function kp_deterministic_podcast_guid(string $feed_url): string {
 
 /** Genera la URL del feed RSS canónico para un podcast dado su slug. */
 function kp_canonical_feed_url(string $slug): string {
-  $domain = function_exists('kp_setting') ? kp_setting('instance_domain') : '';
-  if (!$domain) {
-    $domain = $_SERVER['HTTP_HOST'] ?? 'localhost';
+  $domain = function_exists('kp_setting') ? kp_normalize_domain((string)kp_setting('instance_domain')) : '';
+  if ($domain === '') {
+    $domain = kp_normalize_domain($_SERVER['HTTP_HOST'] ?? 'localhost');
   }
-  $domain = preg_replace('#^https?://#', '', $domain);
   return 'https://' . $domain . '/@' . $slug . '/feed.xml';
 }
 

@@ -44,10 +44,7 @@ if ($is_admin) {
 $rows = $st->fetchAll();
 
 // Normalizar URLs absolutas si está configurado el dominio
-$settings = $pdo->query("SELECT v FROM settings WHERE k='instance_domain' LIMIT 1")
-                ->fetch();
-$base = $settings ? rtrim((string)$settings['v'], '/') : '';
-if ($base && !str_starts_with(strtolower($base), 'http')) $base = 'https://' . $base;
+$base = 'https://' . kp_handle_domain();
 
 foreach ($rows as &$r) {
     if (!empty($r['cover'])  && $base && !str_starts_with(strtolower($r['cover']), 'http')) {

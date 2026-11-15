@@ -15,7 +15,7 @@ $type = $_GET['type'] ?? 'robots';
 if ($type === 'robots') {
     header('Content-Type: text/plain; charset=utf-8');
     $domain = kp_handle_domain();
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || ($_SERVER['SERVER_PORT'] ?? 80) == 443) ? 'https' : 'http';
+    $protocol = kp_get_protocol();
     echo "User-agent: *\n";
     echo "Allow: /\n";
     echo "\n";
@@ -43,7 +43,7 @@ if ($type === 'sitemap') {
     }
 
     $domain = kp_handle_domain();
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || ($_SERVER['SERVER_PORT'] ?? 80) == 443) ? 'https' : 'http';
+    $protocol = kp_get_protocol();
     $base = "{$protocol}://{$domain}";
 
     $urls = [];

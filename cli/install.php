@@ -81,6 +81,9 @@ foreach (['storage', 'storage/uploads', 'storage/pages', 'storage/geoip', 'stora
 // Datos
 $instance = $cli ? ask('Nombre de la instancia', 'KutPod') : ($_POST['instance'] ?? 'KutPod');
 $domain   = $cli ? ask('Dominio', 'www.tupodcast.com')               : ($_POST['domain']   ?? 'www.tupodcast.com');
+// Se guarda limpio: sin esquema (https://), sin ruta ni barras finales (se usa para construir URLs)
+$domain   = strtolower(trim(preg_split('~[/?#]~', preg_replace('~^[a-z][a-z0-9+.\-]*://~i', '', trim($domain)), 2)[0] ?? ''));
+if ($domain === '') $domain = 'www.tupodcast.com';
 $name     = $cli ? ask('Tu nombre')                          : ($_POST['name']     ?? '');
 $email    = $cli ? ask('Email de admin')                     : ($_POST['email']    ?? '');
 $password = $cli ? ask('Contraseña (mín. 8)')                : ($_POST['password'] ?? '');

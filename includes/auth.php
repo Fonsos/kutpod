@@ -32,7 +32,7 @@ function kp_login(string $email, string $password): ?array {
     [$token, $u['id'], $ip, substr($ua, 0, 240), $expires]);
   kp_db()->prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?")->execute([$u['id']]);
 
-  $secure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] == 443);
+  $secure = kp_get_protocol() === 'https';
   setcookie('kp_sess', $token, ['expires' => time()+60*60*24*30, 'path'=>'/', 'httponly'=>true, 'secure'=>$secure, 'samesite'=>'Lax']);
   kp_alert('security', 'Inicio de sesión', "{$u['name']} accedió al panel desde $ip.", '/admin', ['actor_name' => $u['name']]);
   unset($u['password_hash']);
@@ -43,7 +43,7 @@ function kp_logout(): void {
   $tok = $_COOKIE['kp_sess'] ?? null;
   $u = kp_current_user();
   if ($tok) kp_db()->prepare("DELETE FROM sessions WHERE token = ?")->execute([$tok]);
-  $secure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] == 443);
+  $secure = kp_get_protocol() === 'https';
   setcookie('kp_sess', '', ['expires'=>time()-3600, 'path'=>'/', 'httponly'=>true, 'secure'=>$secure, 'samesite'=>'Lax']);
   if ($u) kp_alert('security', 'Cierre de sesión', "{$u['name']} cerró sesión.", '', ['actor_name' => $u['name']]);
 }

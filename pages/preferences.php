@@ -26,7 +26,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['_form'] ?? '') === 'instan
   $set = kp_db()->prepare("INSERT INTO settings (k,v) VALUES (?,?)
                            ON CONFLICT(k) DO UPDATE SET v=excluded.v, updated_at=datetime('now')");
   foreach (['instance_name','instance_domain','instance_tagline','owner_name','timezone'] as $k) {
-    if (isset($_POST[$k])) $set->execute([$k, trim($_POST[$k])]);
+    if (!isset($_POST[$k])) continue;
+    // El dominio se guarda limpio (sin https:// ni barras finales): se usa para construir URLs
+    $set->execute([$k, $k === 'instance_domain' ? kp_normalize_domain($_POST[$k]) : trim($_POST[$k])]);
   }
   
   if (!empty($_FILES['instance_logo']['tmp_name'])) {

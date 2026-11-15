@@ -193,9 +193,7 @@ if ($status === 'published' && $episode['status'] !== 'published') {
     kp_notify_websub($feed_url);
 
     // Calcular URL pública del episodio para el gancho
-    $settings = $pdo->query("SELECT v FROM settings WHERE k='instance_domain' LIMIT 1")->fetch();
-    $base = $settings ? rtrim((string)$settings['v'], '/') : '';
-    if ($base && !str_starts_with(strtolower($base), 'http')) $base = 'https://' . $base;
+    $base = 'https://' . kp_handle_domain();
     $episodeUrl = $base . '/@' . $podcast['slug'] . '/' . $slug;
 
     kp_do_action('episode_published', (int)$episodeId, (int)$podcast['id'], $title, isset($_POST['description']) ? (string)$_POST['description'] : $episode['notes_md'], $episodeUrl);
@@ -205,9 +203,7 @@ if ($status === 'published' && $episode['status'] !== 'published') {
 kp_alert('system', 'Episodio actualizado (API)', "'{$title}' fue actualizado en {$podcast['title']} vía Kut Editor.", '/admin/new-episode?id=' . $episodeId . '&podcast=' . urlencode($podcast['slug']), ['actor_name' => $user['name'] ?? 'API']);
 
 // ── 9) Construir URL pública del episodio ──────────────────────────
-$settings = $pdo->query("SELECT v FROM settings WHERE k='instance_domain' LIMIT 1")->fetch();
-$base = $settings ? rtrim((string)$settings['v'], '/') : '';
-if ($base && !str_starts_with(strtolower($base), 'http')) $base = 'https://' . $base;
+$base = 'https://' . kp_handle_domain();
 $episodeUrl = $base . '/@' . $podcast['slug'] . '/' . $slug;
 
 api_json([

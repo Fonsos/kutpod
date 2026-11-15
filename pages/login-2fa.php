@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
           [$token, $u['id'], $ip, substr($ua, 0, 240), $expires]);
         kp_db()->prepare("UPDATE users SET last_login = datetime('now') WHERE id = ?")->execute([$u['id']]);
 
-        $secure = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || ($_SERVER['SERVER_PORT'] == 443);
+        $secure = kp_get_protocol() === 'https';
         setcookie('kp_sess', $token, ['expires' => time()+60*60*24*30, 'path'=>'/', 'httponly'=>true, 'secure'=>$secure, 'samesite'=>'Lax']);
         kp_alert('security', 'Inicio de sesión (2FA)', "{$u['name']} accedió tras validar 2FA desde $ip.", '/admin', ['actor_name' => $u['name']]);
         

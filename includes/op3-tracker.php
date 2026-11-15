@@ -144,7 +144,7 @@ function kp_op3_track_and_redirect(string $showSlug, string $episodeSlug): void 
   // Construir URL absoluta del audio real (puede ser interno o externo)
   $audio = $ep['audio_url'];
   if (!preg_match('#^https?://#i', $audio)) {
-    $audio = (isset($_SERVER['HTTPS']) ? 'https' : 'http') . '://' . $_SERVER['HTTP_HOST'] . $audio;
+    $audio = kp_base_url() . $audio;   // (detrás de un proxy $_SERVER['HTTPS'] no existe: redirigía a http://)
   }
 
   // Si el podcast tiene OP3 desactivado, redirige directo sin trackear

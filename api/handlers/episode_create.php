@@ -239,9 +239,7 @@ kp_alert('system', "Episodio $statusLabel (API)", "'{$title}' se ha $statusLabel
 // El contador se calcula dinámicamente, no hay columna episode_count en podcasts
 
 // ── 9) Construir URL pública del episodio ──────────────────────────
-$settings = $pdo->query("SELECT v FROM settings WHERE k='instance_domain' LIMIT 1")->fetch();
-$base = $settings ? rtrim((string)$settings['v'], '/') : '';
-if ($base && !str_starts_with(strtolower($base), 'http')) $base = 'https://' . $base;
+$base = 'https://' . kp_handle_domain();
 $episodeUrl = $base . '/@' . $podcast['slug'] . '/' . $slug;
 
 // ── 10) Disparar evento de publicación de episodio ──

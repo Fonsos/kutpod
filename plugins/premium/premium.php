@@ -379,8 +379,8 @@ function kp_premium_send_status_email(string $email, int $podcast_id, string $ty
         
         $title = $p['title'];
         $instance_name = kp_setting('instance_name', 'KutPod');
-        $domain = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+        $domain = kp_handle_domain();
+        $protocol = kp_get_protocol() . '://';
         
         if ($type === 'welcome' && empty($tokenStr)) {
             $t = kp_one("SELECT token FROM premium_tokens WHERE podcast_id = ? AND subscriber_email = ? AND status = 'active'", [$podcast_id, $email]);
@@ -1341,8 +1341,8 @@ function kp_premium_create_stripe_checkout(): void {
     }
     $price_in_cents = round($price * 100);
 
-    $domain = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+    $domain = kp_handle_domain();
+    $protocol = kp_get_protocol() . '://';
     $success_url = $protocol . $domain . '/@' . urlencode($p['slug']) . '?status=success';
     $cancel_url = $protocol . $domain . '/@' . urlencode($p['slug']) . '?status=cancel';
 
@@ -1443,8 +1443,8 @@ function kp_premium_create_paypal_checkout(): void {
         $description = 'Suscripción Premium Mensual - ' . $p['title'];
     }
 
-    $domain = $_SERVER['HTTP_HOST'] ?? 'localhost';
-    $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+    $domain = kp_handle_domain();
+    $protocol = kp_get_protocol() . '://';
     $success_url = $protocol . $domain . '/@' . urlencode($p['slug']) . '?status=success';
     $cancel_url = $protocol . $domain . '/@' . urlencode($p['slug']) . '?status=cancel';
 

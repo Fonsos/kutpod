@@ -63,9 +63,8 @@ function kp_ap_ensure_schema(): void {
 kp_ap_ensure_schema();
 
 function kp_ap_base(): string {
-  $domain = kp_setting('instance_domain', $_SERVER['HTTP_HOST'] ?? 'www.tupodcast.com');
-  $proto = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'https'; // Forzamos https en producción
-  return "$proto://$domain";
+  // ActivityPub exige https en producción
+  return 'https://' . kp_handle_domain();
 }
 
 function kp_ap_keypair(int $podcastId): array {
