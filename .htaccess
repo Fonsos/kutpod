@@ -54,6 +54,9 @@ RewriteRule ^feed\.xml$                /feed.php?slug=all [QSA,L]
 # ----------------------------------------------------------------------------
 # 4) API REST · /api/* → /api/index.php
 # ----------------------------------------------------------------------------
+# El propio front controller no se reescribe: en .htaccess Apache re-evalúa el
+# resultado y /api/index.php volvería a casar con ^api/(.*)$ (AH00124, bucle → 500)
+RewriteRule ^api/index\.php$  -  [L]
 RewriteRule ^api/(.*)$  /api/index.php?route=$1  [QSA,L]
 
 # ----------------------------------------------------------------------------
